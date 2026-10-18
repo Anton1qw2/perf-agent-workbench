@@ -55,11 +55,8 @@
           "type": "string"
         },
         "operation": {
-          "enum": [
-            "get_list_metrics",
-            "get_hotspots",
-            "get_asm"
-          ],
+          "maxLength": 256,
+          "minLength": 1,
           "title": "Operation",
           "type": "string"
         },
@@ -546,9 +543,23 @@
       "default": "metrics",
       "enum": [
         "metrics",
-        "source"
+        "source",
+        "analysis_input"
       ],
       "title": "Clarification Field",
+      "type": "string"
+    },
+    "tool_catalog": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Tool Catalog",
+      "type": "array"
+    },
+    "analyzer": {
+      "default": "legacy",
+      "title": "Analyzer",
       "type": "string"
     }
   },

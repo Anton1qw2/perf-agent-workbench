@@ -10,7 +10,12 @@ from perf_chat.contracts import (
     PerformanceResult,
     PerformanceTask,
 )
-from perf_chat.profiler_analysis_agent.contracts import AnalysisRequest, ProfileAnalysis
+from perf_chat.profiler_analysis_agent.contracts import (
+    AnalysisRequest,
+    AnalysisStep,
+    MCPTool,
+    ProfileAnalysis,
+)
 from perf_chat.profiler_analysis_agent.source_contracts import (
     SourceContext,
     SourceEvidence,
@@ -28,6 +33,8 @@ for model in [
     PerformanceResult,
     AnalysisRequest,
     ProfileAnalysis,
+    AnalysisStep,
+    MCPTool,
     SourceRequest,
     SourceSnapshot,
     SourceEvidence,

@@ -146,6 +146,15 @@ The design and four planning reviews are recorded in
 
 ## Profile analysis agent
 
+For the default dynamic `profile-mcp` analyzer and custom graph replacement, see
+[the analyzer extension guide](analyzer-extension.md). The fixed graph and three MCP
+methods below describe the compatible legacy API and synthetic demo, not a requirement
+on every MCP server. New real-MCP runs use dynamic discovery and backend tool policy.
+The dynamic checkpoint pins the endpoint and policy; configuration drift requires a
+new run. User clarification pairs are supplied to planning and final interpretation,
+and empty profiler responses alone cannot produce a completed interpretation.
+
+
 The `profiler_analysis_agent` package implements a separate LangGraph subgraph:
 
 ```mermaid

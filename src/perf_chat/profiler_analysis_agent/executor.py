@@ -4,7 +4,7 @@ import json
 
 from ..contracts import ClarificationRequest, ExecutionEvent, PerformanceResult
 from ..runtime import execution_deadline
-from .contracts import AnalysisRequest
+from .contracts import AnalysisRequest, AnalysisStep
 from .source_context import prepare_source
 from .source_contracts import SourceOptions, SourceRequest, SourceSnapshot
 
@@ -27,7 +27,7 @@ def render_report(report):
         lines.append(f"[{item.id}] {item.operation}: " + text[:3000])
         if len(text) > 3000:
             lines.append("[Display excerpt truncated; full evidence retained.]")
-    if report.source_context:
+    if report.source_context and report.source_context.snapshot:
         snapshot = report.source_context.snapshot
         lines.append(
             f"\nSource: {snapshot.status}; commit {snapshot.commit or 'unavailable'}; profile match unverified"
@@ -40,14 +40,26 @@ def render_report(report):
 
 
 class ProfileAnalysisExecutor:
-    def __init__(self, agent):
+    def __init__(self, agent, *, source_gateway=None):
         self.agent = agent
+        self.source_gateway = (
+            source_gateway if source_gateway is not None else getattr(agent, "source_gateway", None)
+        )
 
     def step(self, run_id, task, cursor, answer=None, *, deadline=None):
+        analyzer_id = getattr(
+            self.agent, "analyzer_id", f"{type(self.agent).__module__}.{type(self.agent).__qualname__}",
+        )
+        if cursor.get("analyzer_id", analyzer_id) != analyzer_id:
+            return ExecutionEvent(type="result", result=PerformanceResult(
+                task_id=task.task_id, status="failed",
+                summary="Analyzer implementation changed. Start a new run.",
+            )), cursor
         if not cursor:
             return ExecutionEvent(type="progress", message="Preparing profile metric analysis."), {
-                "stage": "analyze",
+                "stage": "analyze", "analyzer_id": analyzer_id,
             }
+        cursor = {**cursor, "analyzer_id": analyzer_id}
         raw = task.details.get("profile_analysis")
         supported = {"metrics", "include_asm", "source"}
         saved = cursor.get("options", {})
@@ -76,6 +88,8 @@ class ProfileAnalysisExecutor:
         if awaiting and answer:
             if awaiting == "result_id":
                 options["result_id"] = answer.answer
+            elif awaiting == "analysis_input":
+                pass  # The analyzer receives plain-text clarification through its lifecycle.
             else:
                 try:
                     value = json.loads(answer.answer)
@@ -183,7 +197,7 @@ class ProfileAnalysisExecutor:
         }
         if request.source and "source_snapshot" not in cursor:
             with execution_deadline(deadline):
-                snapshot = prepare_source(self.agent.source_gateway, request.source)
+                snapshot = prepare_source(self.source_gateway, request.source)
             return ExecutionEvent(
                 type="progress",
                 message="Source selection prepared; immutable revision snapshot saved.",
@@ -198,7 +212,21 @@ class ProfileAnalysisExecutor:
             if cursor.get("source_snapshot")
             else None
         )
-        report = self.agent.analyze(request, deadline=deadline, source_snapshot=snapshot)
+        if hasattr(self.agent, "step_analysis"):
+            step = AnalysisStep.model_validate(self.agent.step_analysis(
+                request, checkpoint=cursor.get("analyzer_state", {}),
+                answer=answer.answer if awaiting == "analysis_input" and answer else None,
+                deadline=deadline, source_snapshot=snapshot,
+            ))
+            saved_cursor["analyzer_state"] = step.checkpoint
+            if step.report is None:
+                return ExecutionEvent(type="progress", message=step.message), {
+                    **saved_cursor, "stage": "analyze", "awaiting": None,
+                }
+            report = step.report
+        else:
+            # Preserve integrations that supplied the original analyze() object.
+            report = self.agent.analyze(request, deadline=deadline, source_snapshot=snapshot)
         if source_limitation:
             report.limitations.append(source_limitation)
         if report.status == "needs_input":
@@ -210,6 +238,8 @@ class ProfileAnalysisExecutor:
                     '\nReply with source options JSON, or {"policy":"off"} to continue without source. Preparation failures require a new run to retry.'
                     if report.clarification_field == "source"
                     else '\nReply as a JSON array, for example ["cpu_samples"].'
+                    if report.clarification_field == "metrics"
+                    else "\nReply in chat with the requested analysis context."
                 ),
                 {
                     **saved_cursor,
@@ -246,5 +276,7 @@ class ProfileAnalysisExecutor:
         ), {**cursor, "awaiting": field, "clarification_attempt": attempt}
 
     def cancel(self, run_id):
-        # Read-only bounded calls; worker checks cancellation between durable steps.
-        pass
+        # Read-only calls are bounded; custom analyzers may release their own resources.
+        cancel = getattr(self.agent, "cancel", None)
+        if cancel is not None:
+            cancel(run_id)

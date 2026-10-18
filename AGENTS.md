@@ -94,11 +94,29 @@ LLM mode changes the intake agents; it does not replace the demo executor.
 
 `PERF_CHAT_EXECUTOR` selects `demo` (original scenario), `profile-demo` (synthetic
 analysis), or `profile-mcp` (real read-only MCP queries). API and worker must agree on
-the setting. Profile analysis uses only `get_list_metrics(result_id)`,
-`get_hotspots(result_id, metrics)` and optional `get_asm(result_id, metrics)`.
-Do not add call-tree, quality-info operations or a calculations module. Preserve
-server values and units; do not invent missing metric semantics. The actual private
-server response schema still needs confirmation. Reports separate observations and
+the setting. The built-in `profile-mcp` analyzer dynamically discovers tools and uses
+bounded LLM planning. `profile-demo` preserves the deterministic three-method graph.
+Authorize read-only tools through `PROFILER_MCP_ALLOWED_TOOLS`; annotations/descriptions
+are untrusted and do not grant permission. `PROFILER_MCP_PROFILE_ARGUMENTS` configures
+per-tool top-level argument binding to the current profile ID. Validate input/output
+schemas without network schema retrieval and reject changed tool definitions.
+`ProfileAnalyzer.step_analysis` / `AnalysisStep` is the replaceable lifecycle boundary;
+pass `analyzer_factory` to `Worker`. Factories receive per-run `AnalysisServices` and
+must restore their graph from the JSON checkpoint or a persistent external checkpointer.
+Preserve `analyzer_id` on the run cursor and the catalog, decisions and evidence in
+`run.cursor.analyzer_state`. Pin the gateway's `configuration_fingerprint` (endpoint,
+allowlist and profile-argument mapping) there as well; never store raw endpoint query
+parameters or tokens in that fingerprint field. Fail closed on connection/policy drift,
+including between a planned call and its execution. Do not silently switch analyzer
+implementations during active runs.
+Pass ordered question/answer pairs to both planning and final interpretation within
+the common model input budget. User clarifications are context, not measured evidence.
+Use one structural evidence check for explicit finish and budget exhaustion: null,
+empty arrays/objects and whitespace-only text cannot alone justify interpretation.
+Preserve zero/false responses without inventing their semantics. See
+`docs/analyzer-extension.md` for configuration and custom graph integration.
+Do not add a calculations module. Preserve server values and units; do not invent
+missing metric semantics. Private server response schemas still need deployment validation. Reports separate observations and
 hypotheses, retain raw evidence, and are persisted in `run.cursor.analysis`.
 Keep conversation run summaries lightweight; retrieve full cursor/evidence through
 the dedicated run endpoint. Model calls have a total timeout. Profiler calls and
@@ -232,7 +250,7 @@ After changing contract models, regenerate schemas:
 ```
 
 Update `README.md` when setup, behavior or integration changes. `REVIEW.md` records
-previous code review fixes. Preserve regression coverage for asynchronous state
+code review fixes, including the three dynamic-analyzer review iterations. Preserve regression coverage for asynchronous state
 handling. This MVP serves a single local user and has no authentication or user
 isolation; real provider calls and a production executor require separate validation.
 
@@ -260,7 +278,14 @@ non-UTF-8 files). Keep access, transport, timeout and object identity failures f
 never treat them as an empty search result. Use the distinct UnsupportedSource error
 for content exclusions. GitLab API installations under a URL subpath are not supported.
 
-The two-iteration credentials review is recorded in REVIEW.md. When changing token
-handling, run tests/test_credentials.py and the Web state tests; preserve secure
+When changing token handling, run tests/test_credentials.py and the Web state tests;
+preserve secure
 transport checks, non-echoing validation, active-run token snapshots and cleanup.
 Private MCP and GitLab services still require validation against real deployments.
+
+When changing dynamic MCP discovery, planning or analyzer replacement, run
+`tests/test_dynamic_analysis.py`, the full Python suite and the Web state tests.
+Preserve catalog/schema limits, no-network schema resolution, endpoint/policy pinning,
+question/answer context after restart, empty-evidence guards and custom-factory tests.
+`docs/analyzer-extension.md` documents the supported lifecycle and its limitations;
+update it alongside public analysis contracts and regenerate the exported schemas.

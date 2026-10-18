@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
 from pydantic import Field
@@ -16,7 +17,7 @@ class AnalysisRequest(StrictModel):
 
 class Evidence(StrictModel):
     id: str
-    operation: Literal["get_list_metrics", "get_hotspots", "get_asm"]
+    operation: str = Field(min_length=1, max_length=256)
     arguments: dict[str, Any]
     response: Any
     retrieved_at: str
@@ -48,7 +49,10 @@ class ProfileAnalysis(StrictModel):
     documentation: dict[str, Any] | None = None
     source_context: SourceContext | None = None
     delivered_evidence_ids: list[str] = Field(default_factory=list)
-    clarification_field: Literal["metrics", "source"] = "metrics"
+    clarification_field: Literal["metrics", "source", "analysis_input"] = "metrics"
+    tool_catalog: list[dict[str, Any]] = Field(default_factory=list)
+    analyzer: str = "legacy"
+
 
 
 class ProfilerGateway(Protocol):
@@ -57,3 +61,49 @@ class ProfilerGateway(Protocol):
     def get_list_metrics(self, result_id: str) -> Any: ...
     def get_hotspots(self, result_id: str, metrics: list[str]) -> Any: ...
     def get_asm(self, result_id: str, metrics: list[str]) -> Any: ...
+
+
+class MCPTool(StrictModel):
+    name: str = Field(min_length=1, max_length=256)
+    description: str = Field(default="", max_length=16000)
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any] | None = None
+
+
+class MCPToolGateway(Protocol):
+    demo: bool
+    allowed_tools: frozenset[str]
+    configuration_fingerprint: str
+
+    def list_tools(self) -> list[MCPTool]: ...
+    def call_tool(self, tool: MCPTool, arguments: dict, *, result_id: str) -> Any: ...
+
+
+class AnalysisStep(StrictModel):
+    checkpoint: dict[str, Any] = Field(default_factory=dict)
+    message: str = "Analysis step completed."
+    report: ProfileAnalysis | None = None
+
+
+class ProfileAnalyzer(Protocol):
+    """Replaceable analysis lifecycle. Checkpoints must be JSON-serializable.
+
+    Called again after each durable progress event or clarification. Read-only
+    calls may be redelivered before the checkpoint transaction is accepted.
+    """
+
+    def step_analysis(
+        self, request: AnalysisRequest, *, checkpoint: dict[str, Any],
+        answer: str | None = None, deadline: float | None = None, source_snapshot=None,
+    ) -> AnalysisStep: ...
+
+
+@dataclass(frozen=True)
+class AnalysisServices:
+    """Backend services provided to a trusted analyzer factory; no token values."""
+
+    profiler: ProfilerGateway | MCPToolGateway
+    analysis_id: str = ""
+    model: Any = None
+    source: Any = None
+    max_input_bytes: int = 120_000

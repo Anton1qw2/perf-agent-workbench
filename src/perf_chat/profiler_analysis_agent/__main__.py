@@ -7,8 +7,8 @@ from ..config import Settings
 from ..integrations.git_source import GitSourceGateway
 from ..integrations.profiler_mcp import DemoProfilerGateway, MCPProfilerGateway
 from ..llm import ChatModel
-from .agent import ProfileAnalysisAgent
-from .contracts import AnalysisRequest
+from .contracts import AnalysisRequest, AnalysisServices
+from .factory import create_builtin_analyzer
 
 
 def main():
@@ -32,14 +32,16 @@ def main():
         else MCPProfilerGateway(
             settings.profiler_mcp_url,
             settings.profiler_mcp_timeout,
+            allowed_tools=settings.profiler_allowed_tools,
+            profile_arguments=settings.profiler_profile_arguments,
         )
     )
-    agent = ProfileAnalysisAgent(
-        gateway,
-        ChatModel(settings) if settings.mode == "llm" else None,
-        source_gateway=GitSourceGateway(settings.git_repositories),
+    agent = create_builtin_analyzer(AnalysisServices(
+        profiler=gateway,
+        model=ChatModel(settings) if settings.mode == "llm" else None,
+        source=GitSourceGateway(settings.git_repositories),
         max_input_bytes=settings.model_input_bytes,
-    )
+    ))
     report = agent.analyze(
         AnalysisRequest(
             result_id=args.result_id,

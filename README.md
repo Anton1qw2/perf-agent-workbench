@@ -99,6 +99,16 @@ configuration precedence, container networking and troubleshooting. LLM mode ena
 intake and profile interpretation; `PERF_CHAT_EXECUTOR` separately selects execution
 and defaults to `demo`. Keep keys out of chat and version control.
 
+## Replaceable profile analyzer
+
+In `profile-mcp` mode, the built-in analyzer discovers MCP tools dynamically and uses
+LLM planning within a bounded investigation workflow. Configure
+`PROFILER_MCP_ALLOWED_TOOLS` and `PROFILER_MCP_PROFILE_ARGUMENTS` for your server;
+discovery does not automatically authorize calls. Active runs pin the endpoint and
+tool policy; changing either requires a new run. `profile-demo` stays deterministic.
+Replace the analyzer in code with `Worker(settings, analyzer_factory=your_factory)`.
+See [analyzer configuration and custom graphs](docs/analyzer-extension.md).
+
 ## External execution infrastructure
 
 Implement `ExecutorGateway.step(run_id, task, cursor, answer)` and `cancel(run_id)`,
@@ -128,6 +138,7 @@ Regenerate schemas after changing contracts with `python scripts/export_contract
   context, profiler APIs, reusable agents, executor contracts and persistence behavior.
 - [Source context design](docs/source-context-plan.md): source enrichment and planning reviews.
 - [Project guide](AGENTS.md): architecture and development rules.
+- [Review notes](REVIEW.md): dynamic analyzer findings, fixes and validation.
 
 This MVP serves one local user without authentication or user isolation. Demo data
 is synthetic. Private MCP response formats and real provider/service integrations

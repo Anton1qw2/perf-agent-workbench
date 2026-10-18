@@ -22,8 +22,22 @@ class Settings:
     profiler_mcp_timeout: float = 60
     git_repositories: dict[str, str] = field(default_factory=dict)
     model_input_bytes: int = 120_000
+    profiler_allowed_tools: list[str] = field(default_factory=lambda: [
+        "get_list_metrics", "get_hotspots", "get_asm",
+    ])
+    profiler_profile_arguments: dict[str, str] = field(default_factory=lambda: {
+        "get_list_metrics": "result_id", "get_hotspots": "result_id", "get_asm": "result_id",
+    })
 
     def __post_init__(self):
+        if (not isinstance(self.profiler_allowed_tools, list)
+                or len(self.profiler_allowed_tools) > 100
+                or not all(isinstance(name, str) and name for name in self.profiler_allowed_tools)):
+            raise ValueError("PROFILER_MCP_ALLOWED_TOOLS must be a list of up to 100 tool names")
+        if (not isinstance(self.profiler_profile_arguments, dict)
+                or not all(isinstance(k, str) and isinstance(v, str) and k and v
+                           for k, v in self.profiler_profile_arguments.items())):
+            raise ValueError("PROFILER_MCP_PROFILE_ARGUMENTS must map tools to profile argument names")
         if not self.api_host.strip():
             raise ValueError("PERF_CHAT_API_HOST must not be empty")
         if not 1 <= self.api_port <= 65535:
@@ -61,6 +75,13 @@ class Settings:
             profiler_mcp_timeout=float(os.getenv("PROFILER_MCP_TIMEOUT_SECONDS", "60")),
             git_repositories=json.loads(os.getenv("PERF_CHAT_GIT_REPOSITORIES", "{}")),
             model_input_bytes=int(os.getenv("PERF_CHAT_MODEL_INPUT_BYTES", "120000")),
+            profiler_allowed_tools=json.loads(os.getenv(
+                "PROFILER_MCP_ALLOWED_TOOLS", '["get_list_metrics","get_hotspots","get_asm"]',
+            )),
+            profiler_profile_arguments=json.loads(os.getenv(
+                "PROFILER_MCP_PROFILE_ARGUMENTS",
+                '{"get_list_metrics":"result_id","get_hotspots":"result_id","get_asm":"result_id"}',
+            )),
         )
         if value.mode not in {"demo", "llm"}:
             raise ValueError("PERF_CHAT_MODE must be demo or llm")

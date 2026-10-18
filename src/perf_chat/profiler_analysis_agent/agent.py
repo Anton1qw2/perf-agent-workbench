@@ -5,7 +5,13 @@ from ..llm import ChatModel
 from ..profiler_docs_agent import ProfilerDocsAgent
 from ..runtime import execution_deadline
 from .context_builder import PromptContextBuilder
-from .contracts import AnalysisRequest, Interpretation, ProfileAnalysis, ProfilerGateway
+from .contracts import (
+    AnalysisRequest,
+    AnalysisStep,
+    Interpretation,
+    ProfileAnalysis,
+    ProfilerGateway,
+)
 from .source_context import prepare_source
 from .validation import validate_interpretation
 
@@ -16,11 +22,14 @@ values and units. Never infer unknown metric semantics, collection quality or ca
 Separate observations from hypotheses. Every observation and hypothesis must cite supplied
 evidence IDs. Recommendations are proposed checks, not completed work. Do not claim that
 code changed or optimization succeeded. Unknown units and limitations must remain unknown.
+User clarification context describes scope and assumptions, not measured evidence.
 Synthetic demo data must always be described as synthetic. Reply in English.
 """
 
 
 class ProfileAnalysisAgent:
+    analyzer_id = "legacy-profile-v1"
+
     def __init__(
         self,
         gateway: ProfilerGateway,
@@ -43,7 +52,7 @@ class ProfileAnalysisAgent:
             .read_text(encoding="utf-8")
         )
 
-    def interpret(self, request, evidence, documentation, source_context=None):
+    def interpret(self, request, evidence, documentation, source_context=None, *, analysis_context=None):
         if self.model is None:
             return (
                 Interpretation(
@@ -63,6 +72,7 @@ class ProfileAnalysisAgent:
                 "evidence": [item.model_dump() for item in evidence],
                 "documentation": documentation,
                 "demo": self.gateway.demo,
+                "analysis_context": analysis_context,
             },
             source_context,
             required=bool(request.source and request.source.policy == "required"),
@@ -107,6 +117,12 @@ class ProfileAnalysisAgent:
                 }
             )
         return ProfileAnalysis.model_validate(state["report"])
+
+    def step_analysis(self, request, *, checkpoint, answer=None, deadline=None, source_snapshot=None):
+        """Compatibility adapter for the original deterministic graph."""
+        return AnalysisStep(checkpoint=checkpoint, report=self.analyze(
+            request, deadline=deadline, source_snapshot=source_snapshot,
+        ))
 
     def as_tool(self):
         from langchain_core.tools import StructuredTool

@@ -10,8 +10,9 @@ from .integrations.profiler_mcp import DemoProfilerGateway, MCPProfilerGateway
 from .llm import ChatModel
 from .orchestrator.agent import OrchestratorAgent
 from .orchestrator.graph import build_intake_graph
-from .profiler_analysis_agent import ProfileAnalysisAgent
+from .profiler_analysis_agent.contracts import AnalysisServices
 from .profiler_analysis_agent.executor import ProfileAnalysisExecutor
+from .profiler_analysis_agent.factory import create_builtin_analyzer
 from .profiler_docs_agent import ProfilerDocsAgent
 from .store import Store
 from .task_agent.agent import TaskAgent
@@ -20,10 +21,11 @@ log = logging.getLogger(__name__)
 
 
 class Worker:
-    def __init__(self, settings: Settings, executor=None):
+    def __init__(self, settings: Settings, executor=None, *, analyzer_factory=None):
         self.store = Store(settings.db_path)
         self.settings = settings
         self._configured_executor = executor is None
+        self.analyzer_factory = analyzer_factory or create_builtin_analyzer
         model = ChatModel(settings) if settings.mode == "llm" else None
         self.model = model
         self.graph = build_intake_graph(
@@ -34,19 +36,8 @@ class Worker:
         if executor is not None:
             self.executor = executor
         elif settings.executor_mode in {"profile-demo", "profile-mcp"}:
-            gateway = (
-                DemoProfilerGateway()
-                if settings.executor_mode == "profile-demo"
-                else (MCPProfilerGateway(settings.profiler_mcp_url, settings.profiler_mcp_timeout))
-            )
-            self.executor = ProfileAnalysisExecutor(
-                ProfileAnalysisAgent(
-                    gateway,
-                    model,
-                    source_gateway=GitSourceGateway(settings.git_repositories),
-                    max_input_bytes=settings.model_input_bytes,
-                )
-            )
+            # Instantiate only once the immutable run and credential references are known.
+            self.executor = None
         else:
             self.executor = DemoExecutor()
 
@@ -62,18 +53,18 @@ class Worker:
                 settings.profiler_mcp_url,
                 settings.profiler_mcp_timeout,
                 token=profiler_token,
+                allowed_tools=settings.profiler_allowed_tools,
+                profile_arguments=settings.profiler_profile_arguments,
             )
         )
         source = RepositorySourceGateway(
             GitSourceGateway(settings.git_repositories), repository=repository, token=git_token
         )
         return ProfileAnalysisExecutor(
-            ProfileAnalysisAgent(
-                gateway,
-                self.model,
-                source_gateway=source,
-                max_input_bytes=settings.model_input_bytes,
-            )
+            self.analyzer_factory(AnalysisServices(
+                profiler=gateway, model=self.model, source=source,
+                analysis_id=run["id"], max_input_bytes=settings.model_input_bytes,
+            )), source_gateway=source,
         )
 
     def tick(self):
@@ -97,7 +88,7 @@ class Worker:
                 execution = (
                     self._profile_executor(run)
                     if self._configured_executor
-                    and isinstance(self.executor, ProfileAnalysisExecutor)
+                    and self.executor is None
                     else self.executor
                 )
                 if run["status"] == "cancelling":

@@ -1,0 +1,41 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 16000,
+      "title": "Description",
+      "type": "string"
+    },
+    "input_schema": {
+      "additionalProperties": true,
+      "title": "Input Schema",
+      "type": "object"
+    },
+    "output_schema": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Output Schema"
+    }
+  },
+  "required": [
+    "name",
+    "input_schema"
+  ],
+  "title": "MCPTool",
+  "type": "object"
+}
