@@ -1,0 +1,163 @@
+{
+  "$defs": {
+    "SourceLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "end_line": {
+          "default": 80,
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "SourceLocation",
+      "type": "object"
+    },
+    "SourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "default": "optional",
+          "enum": [
+            "off",
+            "optional",
+            "required"
+          ],
+          "title": "Policy",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "scope_repository": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope Repository"
+        },
+        "scope_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope Ref"
+        },
+        "locations": {
+          "items": {
+            "$ref": "#/$defs/SourceLocation"
+          },
+          "maxItems": 5,
+          "title": "Locations",
+          "type": "array"
+        },
+        "symbols": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Symbols",
+          "type": "array"
+        },
+        "repository": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Repository",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "ref"
+      ],
+      "title": "SourceRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "result_id": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Result Id",
+      "type": "string"
+    },
+    "goal": {
+      "maxLength": 20000,
+      "minLength": 1,
+      "title": "Goal",
+      "type": "string"
+    },
+    "metrics": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 6,
+      "title": "Metrics",
+      "type": "array"
+    },
+    "include_asm": {
+      "default": false,
+      "title": "Include Asm",
+      "type": "boolean"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceRequest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "result_id",
+    "goal"
+  ],
+  "title": "AnalysisRequest",
+  "type": "object"
+}

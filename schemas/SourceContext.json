@@ -1,0 +1,245 @@
+{
+  "$defs": {
+    "SourceEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "repository": {
+          "title": "Repository",
+          "type": "string"
+        },
+        "commit": {
+          "title": "Commit",
+          "type": "string"
+        },
+        "blob": {
+          "title": "Blob",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "end_line": {
+          "title": "End Line",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "resolution": {
+          "enum": [
+            "provided_location",
+            "text_candidate"
+          ],
+          "title": "Resolution",
+          "type": "string"
+        },
+        "origin": {
+          "const": "user_selection",
+          "default": "user_selection",
+          "title": "Origin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "repository",
+        "commit",
+        "blob",
+        "path",
+        "start_line",
+        "end_line",
+        "text",
+        "sha256",
+        "resolution"
+      ],
+      "title": "SourceEvidence",
+      "type": "object"
+    },
+    "SourceLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "end_line": {
+          "default": 80,
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "SourceLocation",
+      "type": "object"
+    },
+    "SourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "resolved",
+            "unavailable",
+            "disabled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "repository": {
+          "title": "Repository",
+          "type": "string"
+        },
+        "requested_ref": {
+          "title": "Requested Ref",
+          "type": "string"
+        },
+        "requested_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requested Commit"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "tree": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tree"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "preparation_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Preparation Seconds",
+          "type": "number"
+        },
+        "selection_basis": {
+          "default": "branch_tip",
+          "enum": [
+            "branch_tip",
+            "user_declared"
+          ],
+          "title": "Selection Basis",
+          "type": "string"
+        },
+        "profile_revision_match": {
+          "const": "unverified",
+          "default": "unverified",
+          "title": "Profile Revision Match",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "repository",
+        "requested_ref"
+      ],
+      "title": "SourceSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "snapshot": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/SourceEvidence"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/SourceLocation"
+      },
+      "title": "Candidates",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "needs_selection": {
+      "default": false,
+      "title": "Needs Selection",
+      "type": "boolean"
+    },
+    "required_delivery": {
+      "default": "not_required",
+      "enum": [
+        "not_required",
+        "pending",
+        "delivered",
+        "interpretation_disabled"
+      ],
+      "title": "Required Delivery",
+      "type": "string"
+    }
+  },
+  "title": "SourceContext",
+  "type": "object"
+}

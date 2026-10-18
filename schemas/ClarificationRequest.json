@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "question": {
+      "title": "Question",
+      "type": "string"
+    },
+    "fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Fields",
+      "type": "array"
+    }
+  },
+  "required": [
+    "request_id",
+    "question"
+  ],
+  "title": "ClarificationRequest",
+  "type": "object"
+}

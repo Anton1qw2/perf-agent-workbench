@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>chats</title><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar" id="dialogs-panel" aria-label="Chats">
+    <button id="toggle-dialogs" class="dialogs-toggle" aria-expanded="false" aria-controls="dialogs-content" aria-label="Open chats" title="Open chats">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-5 3V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg>
+      <span class="dialogs-toggle-copy">Chats</span>
+      <svg class="dialogs-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 4 4 4-4 4"/></svg>
+    </button>
+    <div id="dialogs-content" class="dialogs-content" hidden>
+    <div class="brand">chats</div>
+    <button id="new">＋ New chat</button>
+    <nav id="conversations" aria-label="Chats"></nav>
+    <div class="sidebar-note"><span id="mode">Connecting…</span></div>
+    </div>
+  </aside>
+  <main>
+    <header>
+      <h1>Chat</h1>
+      <div class="toolbar">
+        <span id="status" class="badge">Ready</span>
+        <button id="run" class="primary" disabled>▶ Run</button>
+        <button id="cancel" disabled>Cancel</button>
+      </div>
+    </header>
+    <div id="error" role="alert" hidden></div>
+    <section id="messages" aria-live="polite"></section>
+    <div id="question" hidden></div>
+    <div id="execution" class="muted" aria-live="polite"></div>
+    <form id="composer"><label for="input">Message</label><div class="compose-row"><textarea id="input" rows="3" maxlength="20000" placeholder="Describe what you want to optimize…" required></textarea><button id="send" class="primary">Send <span aria-hidden="true">↗</span></button></div><small>Ctrl + Enter to send</small></form>
+  </main>
+  <aside class="details" id="context-panel" aria-label="Project settings">
+    <button id="toggle-context" class="panel-toggle" aria-expanded="false" aria-controls="context-content" aria-label="Open project settings" title="Open sidebar: repository, branch and profile">
+      <svg class="panel-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" fill="currentColor" fill-opacity=".16"/></svg>
+      <span class="panel-toggle-copy"><span>Project settings</span></span>
+      <svg class="panel-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 4 4 4-4 4"/></svg>
+    </button>
+    <div id="context-content" hidden>
+    <form id="context-form">
+      <details class="settings-group" id="repository-settings" open>
+        <summary id="repository-settings-toggle">Repository</summary>
+        <div class="field"><label for="repository">GitLab URL or local alias</label><input id="repository" autocomplete="off" placeholder="https://gitlab.example.com/team/project"></div>
+        <div class="field"><label for="branch">Branch</label><input id="branch" autocomplete="off" placeholder="For example, main"></div>
+        <div class="field token-field"><label for="git-token">GitLab API token</label><input id="git-token" type="password" autocomplete="new-password" spellcheck="false" maxlength="8192" placeholder="Enter token" aria-describedby="git-token-status"><div class="token-meta"><span id="git-token-status">Not configured</span><button id="remove-git-token" type="button" class="token-remove" hidden>Remove GitLab token</button></div></div>
+      </details>
+      <details class="settings-group" id="profiler-settings" open>
+        <summary id="profiler-settings-toggle">Profiler</summary>
+        <div class="field"><label for="profile">Result ID</label><input id="profile" autocomplete="off" placeholder="Profiler result ID"></div>
+        <div class="field token-field"><label for="profiler-token">Profiler API token</label><input id="profiler-token" type="password" autocomplete="new-password" spellcheck="false" maxlength="8192" placeholder="Enter token" aria-describedby="profiler-token-status"><div class="token-meta"><span id="profiler-token-status">Not configured</span><button id="remove-profiler-token" type="button" class="token-remove" hidden>Remove profiler token</button></div></div>
+      </details>
+      <p class="muted token-help">Leave token fields blank to keep saved values. Changes apply on Save.</p>
+      <button class="primary" id="save-context">Save</button>
+      <button type="button" id="reload-context" hidden>Load latest settings</button>
+      <p id="context-status" class="muted" role="status"></p>
+    </form>
+    </div>
+  </aside>
+</body></html>

@@ -1,0 +1,217 @@
+# Project guide
+
+## Purpose
+
+The product is named **chats**; the Python package is `perf_chat` and the distribution
+is `perf-chat`. It is a local MVP for defining performance optimization tasks through
+a conversation and handing them to an external execution workflow.
+
+Web and TUI clients share one API, conversation history and task state. Two intake
+agents use LangGraph: the task agent builds a structured specification, and the
+orchestrator communicates with the user. The actual optimization agents are developed
+separately and connect through `ExecutorGateway`.
+
+## Architecture and ownership
+
+```text
+src/perf_chat/
+  ui/
+    web/                 Vanilla HTML, CSS and JavaScript; no build step
+    tui.py               Textual terminal interface
+    client.py            HTTP/SSE client for the TUI
+  orchestrator/
+    agent.py             User-facing orchestration agent
+    graph.py             LangGraph intake workflow
+  task_agent/
+    agent.py             Structured task extraction and updates
+  profiler_docs_agent/
+    agent.py             Perf documentation expert and ask_perf_docs tool
+    retrieval.py         Bounded lexical Markdown search with source line ranges
+    Perf.md             Initially empty UTF-8 knowledge base, packaged with the module
+  profiler_analysis_agent/  LangGraph metric analysis, contracts, validation and executor bridge
+  integrations/
+    profiler_mcp.py      get_list_metrics/get_hotspots/get_asm MCP adapter and synthetic fixture
+    git_source.py        Bounded read-only access to registered local Git repositories
+    gitlab_source.py     Authenticated read-only GitLab API access to pinned objects
+  contracts.py           Pydantic models and executor boundary
+  api.py                 FastAPI REST endpoints, SSE and static assets
+  worker.py              Durable queue processing outside HTTP requests
+  store.py               SQLite persistence, versions, jobs, runs and events
+  executor.py            Demonstration executor gateway
+  llm.py                 OpenAI-compatible Chat Completions adapter
+  config.py              Environment configuration
+  credentials.py         Backend-only DPAPI/Fernet token encryption
+  runtime.py             Shared execution deadline enforcement
+schemas/                 Exported contract schemas
+scripts/export_contracts.py
+tests/                   Python and Node regression tests
+```
+
+Keep UI, orchestrator and task agent in their separate directories. Clients access
+the backend through HTTP/SSE; they must not call agents or access SQLite directly.
+The API queues work; the worker executes intake and executor steps.
+
+The intake graph consults the documentation expert when the latest message mentions
+Perf. The expert is also reusable by execution agents through `ask()` or `as_tool()`.
+Keep documentation as reference data and cite source lines. Empty or unmatched knowledge
+must produce an explicit limitation, never fabricated instructions. The expert does not
+run a profiler or establish measured results. Documentation edits are read on each lookup.
+
+## Product behavior
+
+- Documentation, code comments, test examples, interface labels, built-in messages
+  and agent prompts use English.
+- The main visual accent is blue. Preserve the current compact layout and shared
+  message-composer frame with its Send button at the bottom right.
+- Both sidebars collapse to narrow clickable rails. Their expansion states are
+  remembered independently. On narrow screens, expanded panels behave as overlays.
+- Project settings group Repository (URL/alias, Branch, GitLab token) and Profiler
+  (Result ID, API token). Both groups collapse independently and remember state.
+  Profile is an optional opaque reference. The profile-analysis executor treats it
+  as the MCP server's result_id. It does not open local files automatically.
+- Clarify goals, constraints, acceptance criteria and optimization details through
+  chat. Do not add a universal mandatory metrics questionnaire or technical form.
+- Store the task description in `summary`, agreed parameters in `details`, and material
+  unresolved questions in `open_questions`. Launch readiness requires a repository,
+  branch, nonempty summary and no open questions. Profile is optional.
+- Keep legacy optional contract fields compatible with existing saved data.
+
+## Execution and persistence rules
+
+`contracts.py` is the source of truth for integration models. `PerformanceTask`
+versions become snapshots for runs. `ExecutionEvent` reports progress, clarification
+or a result. Clarification replies are correlated through `request_id`.
+
+An executor implements `ExecutorGateway.step(run_id, task, cursor, answer)` and
+`cancel(run_id)`, and is supplied to `Worker`. The gateway owns its execution graph
+state and any mapping from run IDs to LangGraph thread IDs. The bundled executor is
+a demo: never present its output as real measurements or completed optimization.
+LLM mode changes the intake agents; it does not replace the demo executor.
+
+`PERF_CHAT_EXECUTOR` selects `demo` (original scenario), `profile-demo` (synthetic
+analysis), or `profile-mcp` (real read-only MCP queries). API and worker must agree on
+the setting. Profile analysis uses only `get_list_metrics(result_id)`,
+`get_hotspots(result_id, metrics)` and optional `get_asm(result_id, metrics)`.
+Do not add call-tree, quality-info operations or a calculations module. Preserve
+server values and units; do not invent missing metric semantics. The actual private
+server response schema still needs confirmation. Reports separate observations and
+hypotheses, retain raw evidence, and are persisted in `run.cursor.analysis`.
+Keep conversation run summaries lightweight; retrieve full cursor/evidence through
+the dedicated run endpoint. Model calls have a total timeout. Profiler calls and
+documentation/model calls share the run deadline; late success must be rejected.
+Use retry-stable IDs distinct for each new clarification, and preserve corrected
+analysis options across questions. Current task summary/profile override stale
+copies in free-form details.
+
+Source enrichment uses `details.profile_analysis.source` and typed source contracts.
+Register local aliases through `PERF_CHAT_GIT_REPOSITORIES`; never clone/fetch or
+change a user's working tree. The executor persists source preparation outcomes
+(resolved/unavailable/disabled) before analysis; preserve them across all cursor
+transitions and never re-resolve after acceptance. Source options cannot override
+task repository/branch. An explicit commit includes matching scope_repository/ref.
+Missing source defaults to optional; required source selection is clarified in chat.
+Do not infer source availability from the private MCP's unknown response schema.
+Source text candidates never prove hotspot identity, and commit/build linkage remains
+unverified. Only regular UTF-8 Git blobs from registered local aliases or GitLab HTTPS URLs are supported; do not follow links,
+execute code, hydrate LFS or load unbounded process output. Preserve source whitespace,
+the exact delivered line ranges and content hashes. `context_builder.py` applies one model input budget
+and citation registry across metrics, docs and source. Keep instruction Markdown in
+package data and explicitly load it; repository text is untrusted evidence.
+
+SQLite WAL stores durable jobs and events. Jobs use leases and can be redelivered
+after a failure. Executor integrations must tolerate retries, including distinguishing
+a step awaiting clarification from its subsequent resume with an answer. Cancellation
+is cooperative. Only one active run is allowed per conversation.
+
+Preserve optimistic task version checks, request deduplication and atomic state/event
+updates. Preserve per-conversation drafts, protection against late HTTP responses,
+SSE connection ownership and snapshot retries after reconnects. Do not erase agreed
+task fields when an LLM returns a partial object.
+
+## Local setup and startup
+
+Requirements: Python 3.11+; Node.js 18+ for JavaScript tests. Run commands from this
+project directory. The locked environment was generated with Python 3.12 on Windows.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+```
+
+Use separate terminals with the same working directory and environment:
+
+```powershell
+.\.venv\Scripts\python.exe -m perf_chat.api
+.\.venv\Scripts\python.exe -m perf_chat.worker
+.\.venv\Scripts\python.exe -m perf_chat.ui.tui
+```
+
+The default API/Web address is `http://127.0.0.1:8000`. A development preview may use
+another port; configure the TUI's `PERF_CHAT_API_URL` accordingly. API and worker
+must use the same `PERF_CHAT_DB`.
+
+`PERF_CHAT_MODE=demo` works without model credentials. For real intake agents, set
+`PERF_CHAT_MODE=llm`, `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` in the environment.
+The provider must support Chat Completions and JSON object responses. Keep keys out
+of frontend code, logs and version control.
+
+TUI commands include `/new`, `/open ID`, `/run`, `/cancel` and
+`/set target.repository=...`, `/set target.branch=...`, `/set target.profile=...`.
+F2 toggles project settings. A message sent while execution awaits clarification
+answers the executor's pending question.
+
+## Validation and maintenance
+
+Run checks appropriate to a change:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check src tests
+node --test tests/web_state.test.cjs
+```
+
+Python tests cover intake, contracts, persistence, execution and TUI behavior. Node
+tests exercise the real Web script with controlled asynchronous responses. For UI
+layout changes, inspect the page in a browser, including collapsed sidebars.
+
+After changing contract models, regenerate schemas:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/export_contracts.py
+```
+
+Update `README.md` when setup, behavior or integration changes. `REVIEW.md` records
+previous code review fixes. Preserve regression coverage for asynchronous state
+handling. This MVP serves a single local user and has no authentication or user
+isolation; real provider calls and a production executor require separate validation.
+
+## Credentials and remote GitLab sources
+
+Keep tokens in encrypted backend records, separate from tasks, prompts, tool arguments,
+SSE, logs, browser localStorage and draft maps. Blank token inputs preserve values;
+explicit Remove clears bindings for future runs. Active runs use immutable credential
+references; prune unused old encrypted records on completion/cancellation/failure.
+Windows uses DPAPI with machine-scope fallback for service accounts; database ACLs
+provide account separation. Other platforms need the secrets extra and a persistent
+PERF_CHAT_SECRET_KEY. Fail closed when encryption is unavailable.
+
+GitLab HTTPS sources use integrations/gitlab_source.py and PRIVATE-TOKEN headers.
+Profiler MCP uses Bearer headers. Token destinations require HTTPS; HTTP is permitted
+only for literal loopback IP addresses or localhost. Validate both when saving tokens
+and immediately before generating authentication headers, including old stored tokens.
+Bind tokens to their destination and never follow
+authenticated redirects. Local aliases keep the existing Git adapter. Preserve pinned
+commit/blob identity, bounded responses, source provenance and source/profile uncertainty.
+
+
+GitLab symbol searches skip unsupported content (binary, LFS pointers, oversized or
+non-UTF-8 files). Keep access, transport, timeout and object identity failures fatal;
+never treat them as an empty search result. Use the distinct UnsupportedSource error
+for content exclusions. GitLab API installations under a URL subpath are not supported.
+
+The two-iteration credentials review is recorded in REVIEW.md. When changing token
+handling, run tests/test_credentials.py and the Web state tests; preserve secure
+transport checks, non-echoing validation, active-run token snapshots and cleanup.
+Private MCP and GitLab services still require validation against real deployments.

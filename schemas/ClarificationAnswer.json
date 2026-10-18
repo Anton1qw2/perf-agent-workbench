@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "answer": {
+      "maxLength": 20000,
+      "minLength": 1,
+      "title": "Answer",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "answer"
+  ],
+  "title": "ClarificationAnswer",
+  "type": "object"
+}

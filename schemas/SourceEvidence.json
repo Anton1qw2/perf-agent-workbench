@@ -1,0 +1,69 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "repository": {
+      "title": "Repository",
+      "type": "string"
+    },
+    "commit": {
+      "title": "Commit",
+      "type": "string"
+    },
+    "blob": {
+      "title": "Blob",
+      "type": "string"
+    },
+    "path": {
+      "title": "Path",
+      "type": "string"
+    },
+    "start_line": {
+      "title": "Start Line",
+      "type": "integer"
+    },
+    "end_line": {
+      "title": "End Line",
+      "type": "integer"
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    },
+    "sha256": {
+      "title": "Sha256",
+      "type": "string"
+    },
+    "resolution": {
+      "enum": [
+        "provided_location",
+        "text_candidate"
+      ],
+      "title": "Resolution",
+      "type": "string"
+    },
+    "origin": {
+      "const": "user_selection",
+      "default": "user_selection",
+      "title": "Origin",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "repository",
+    "commit",
+    "blob",
+    "path",
+    "start_line",
+    "end_line",
+    "text",
+    "sha256",
+    "resolution"
+  ],
+  "title": "SourceEvidence",
+  "type": "object"
+}

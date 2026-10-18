@@ -1,0 +1,561 @@
+{
+  "$defs": {
+    "AnalysisRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "result_id": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Result Id",
+          "type": "string"
+        },
+        "goal": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "metrics": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Metrics",
+          "type": "array"
+        },
+        "include_asm": {
+          "default": false,
+          "title": "Include Asm",
+          "type": "boolean"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "result_id",
+        "goal"
+      ],
+      "title": "AnalysisRequest",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "get_list_metrics",
+            "get_hotspots",
+            "get_asm"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "arguments": {
+          "additionalProperties": true,
+          "title": "Arguments",
+          "type": "object"
+        },
+        "response": {
+          "title": "Response"
+        },
+        "retrieved_at": {
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "operation",
+        "arguments",
+        "response",
+        "retrieved_at",
+        "sha256"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text",
+        "evidence_ids"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "SourceContext": {
+      "additionalProperties": false,
+      "properties": {
+        "snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/SourceEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/SourceLocation"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "needs_selection": {
+          "default": false,
+          "title": "Needs Selection",
+          "type": "boolean"
+        },
+        "required_delivery": {
+          "default": "not_required",
+          "enum": [
+            "not_required",
+            "pending",
+            "delivered",
+            "interpretation_disabled"
+          ],
+          "title": "Required Delivery",
+          "type": "string"
+        }
+      },
+      "title": "SourceContext",
+      "type": "object"
+    },
+    "SourceEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "repository": {
+          "title": "Repository",
+          "type": "string"
+        },
+        "commit": {
+          "title": "Commit",
+          "type": "string"
+        },
+        "blob": {
+          "title": "Blob",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "end_line": {
+          "title": "End Line",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "resolution": {
+          "enum": [
+            "provided_location",
+            "text_candidate"
+          ],
+          "title": "Resolution",
+          "type": "string"
+        },
+        "origin": {
+          "const": "user_selection",
+          "default": "user_selection",
+          "title": "Origin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "repository",
+        "commit",
+        "blob",
+        "path",
+        "start_line",
+        "end_line",
+        "text",
+        "sha256",
+        "resolution"
+      ],
+      "title": "SourceEvidence",
+      "type": "object"
+    },
+    "SourceLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "start_line": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "end_line": {
+          "default": 80,
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "SourceLocation",
+      "type": "object"
+    },
+    "SourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "default": "optional",
+          "enum": [
+            "off",
+            "optional",
+            "required"
+          ],
+          "title": "Policy",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "scope_repository": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope Repository"
+        },
+        "scope_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope Ref"
+        },
+        "locations": {
+          "items": {
+            "$ref": "#/$defs/SourceLocation"
+          },
+          "maxItems": 5,
+          "title": "Locations",
+          "type": "array"
+        },
+        "symbols": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Symbols",
+          "type": "array"
+        },
+        "repository": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Repository",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "ref"
+      ],
+      "title": "SourceRequest",
+      "type": "object"
+    },
+    "SourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "resolved",
+            "unavailable",
+            "disabled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "repository": {
+          "title": "Repository",
+          "type": "string"
+        },
+        "requested_ref": {
+          "title": "Requested Ref",
+          "type": "string"
+        },
+        "requested_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requested Commit"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "tree": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tree"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "preparation_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Preparation Seconds",
+          "type": "number"
+        },
+        "selection_basis": {
+          "default": "branch_tip",
+          "enum": [
+            "branch_tip",
+            "user_declared"
+          ],
+          "title": "Selection Basis",
+          "type": "string"
+        },
+        "profile_revision_match": {
+          "const": "unverified",
+          "default": "unverified",
+          "title": "Profile Revision Match",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "repository",
+        "requested_ref"
+      ],
+      "title": "SourceSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "needs_input",
+        "insufficient_data"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "request": {
+      "$ref": "#/$defs/AnalysisRequest"
+    },
+    "demo": {
+      "default": false,
+      "title": "Demo",
+      "type": "boolean"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/Observation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "hypotheses": {
+      "items": {
+        "$ref": "#/$defs/Observation"
+      },
+      "title": "Hypotheses",
+      "type": "array"
+    },
+    "recommendations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Recommendations",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "open_questions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Open Questions",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "documentation": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Documentation"
+    },
+    "source_context": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceContext"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "delivered_evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Delivered Evidence Ids",
+      "type": "array"
+    },
+    "clarification_field": {
+      "default": "metrics",
+      "enum": [
+        "metrics",
+        "source"
+      ],
+      "title": "Clarification Field",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "request"
+  ],
+  "title": "ProfileAnalysis",
+  "type": "object"
+}

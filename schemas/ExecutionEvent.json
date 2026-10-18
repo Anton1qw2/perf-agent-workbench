@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "ClarificationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields",
+          "type": "array"
+        }
+      },
+      "required": [
+        "request_id",
+        "question"
+      ],
+      "title": "ClarificationRequest",
+      "type": "object"
+    },
+    "Measurement": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "metric",
+        "value",
+        "unit",
+        "evidence"
+      ],
+      "title": "Measurement",
+      "type": "object"
+    },
+    "PerformanceResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "cancelled",
+            "demo"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "before": {
+          "items": {
+            "$ref": "#/$defs/Measurement"
+          },
+          "title": "Before",
+          "type": "array"
+        },
+        "after": {
+          "items": {
+            "$ref": "#/$defs/Measurement"
+          },
+          "title": "After",
+          "type": "array"
+        },
+        "correctness_verified": {
+          "default": false,
+          "title": "Correctness Verified",
+          "type": "boolean"
+        },
+        "artifacts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "status",
+        "summary"
+      ],
+      "title": "PerformanceResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "progress",
+        "clarification",
+        "result"
+      ],
+      "title": "Type",
+      "type": "string"
+    },
+    "message": {
+      "default": "",
+      "title": "Message",
+      "type": "string"
+    },
+    "clarification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ClarificationRequest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PerformanceResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "title": "ExecutionEvent",
+  "type": "object"
+}

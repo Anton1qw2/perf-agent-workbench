@@ -1,0 +1,91 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "enum": [
+        "resolved",
+        "unavailable",
+        "disabled"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "repository": {
+      "title": "Repository",
+      "type": "string"
+    },
+    "requested_ref": {
+      "title": "Requested Ref",
+      "type": "string"
+    },
+    "requested_commit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requested Commit"
+    },
+    "commit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Commit"
+    },
+    "tree": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tree"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    },
+    "preparation_seconds": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Preparation Seconds",
+      "type": "number"
+    },
+    "selection_basis": {
+      "default": "branch_tip",
+      "enum": [
+        "branch_tip",
+        "user_declared"
+      ],
+      "title": "Selection Basis",
+      "type": "string"
+    },
+    "profile_revision_match": {
+      "const": "unverified",
+      "default": "unverified",
+      "title": "Profile Revision Match",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "repository",
+    "requested_ref"
+  ],
+  "title": "SourceSnapshot",
+  "type": "object"
+}
