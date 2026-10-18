@@ -1,10 +1,10 @@
-import re
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
 from ..contracts import PerformanceTask
 from ..profiler_docs_agent import ProfilerDocsAgent
+from ..profiler_docs_agent.trigger import matches_documentation_trigger
 from ..task_agent.agent import TaskAgent
 from .agent import OrchestratorAgent
 
@@ -27,7 +27,7 @@ def build_intake_graph(
         question = next(
             (m["content"] for m in reversed(state["messages"]) if m["role"] == "user"), "",
         )
-        return "perf_docs" if re.search(r"\bperf\b", question, re.I) else "orchestrator"
+        return "perf_docs" if matches_documentation_trigger(question) else "orchestrator"
 
     def consult_documentation(state: IntakeState):
         question = next(m["content"] for m in reversed(state["messages"]) if m["role"] == "user")

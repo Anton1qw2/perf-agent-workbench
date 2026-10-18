@@ -1,0 +1,3 @@
+# Documentation routing keywords: one literal word or phrase per line.
+# Case-insensitive; blank lines and lines starting with # are ignored.
+perf

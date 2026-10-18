@@ -79,3 +79,34 @@ def test_graph_routes_only_current_perf_request(tmp_path):
 
 def test_packaged_placeholder_is_empty():
     assert ProfilerDocsAgent().knowledge_path.read_bytes() == b""
+
+
+def test_trigger_file_reload_controls_existing_graph(tmp_path, monkeypatch):
+    from perf_chat.profiler_docs_agent import trigger
+
+    keywords = tmp_path / "triggers.txt"
+    monkeypatch.setattr(trigger, "TRIGGER_PATH", keywords)
+    graph = build_intake_graph(TaskAgent(), OrchestratorAgent())
+
+    def lookup(message):
+        return graph.invoke({
+            "task": PerformanceTask().model_dump(),
+            "messages": [{"role": "user", "content": message}],
+        })
+
+    keywords.write_text("# Keywords\n\nvtune\nmy profiler\nc++\n", encoding="utf-8-sig")
+    assert "documentation" in lookup("Explain VTune hotspots")
+    assert "documentation" in lookup("Use My Profiler, please")
+    assert "documentation" in lookup("Explain c++ hotspots")
+    assert "documentation" not in lookup("Explain Perf hotspots")
+    assert "documentation" not in lookup("Explain vtunelike tools")
+    assert "documentation" not in lookup("Explain cxx hotspots")
+    keywords.write_text("perf\n", encoding="utf-8")
+    assert "documentation" in lookup("Explain Perf hotspots")
+    assert "documentation" not in lookup("Explain VTune hotspots")
+    keywords.write_text("# Disabled\n", encoding="utf-8")
+    assert "documentation" not in lookup("Explain Perf hotspots")
+    keywords.write_bytes(b"\xff")
+    assert "documentation" not in lookup("Explain Perf hotspots")
+    keywords.unlink()
+    assert "documentation" not in lookup("Explain Perf hotspots")

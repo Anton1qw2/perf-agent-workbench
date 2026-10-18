@@ -28,7 +28,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "perf_chat.ui" = ["web/*"]
-"perf_chat.profiler_docs_agent" = ["Perf.md"]
+"perf_chat.profiler_docs_agent" = ["Perf.md", "triggers.txt"]
 "perf_chat.profiler_analysis_agent" = ["instructions/*.md"]
 
 [tool.pytest.ini_options]

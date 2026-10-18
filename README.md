@@ -143,4 +143,11 @@ Regenerate schemas after changing contracts with `python scripts/export_contract
 This MVP serves one local user without authentication or user isolation. Demo data
 is synthetic. Private MCP response formats and real provider/service integrations
 still require deployment validation. Perf documentation starts empty in
-`src/perf_chat/profiler_docs_agent/Perf.md`; add reference material to enable lookups.
+`src/perf_chat/profiler_docs_agent/Perf.md`; replace its contents with your profiler's
+reference material. To change when chat consults documentation, edit
+`src/perf_chat/profiler_docs_agent/triggers.txt`: one literal keyword or phrase per
+line, for example `perf`, `vtune` or `my profiler`. Matching ignores case and uses
+word boundaries; blank lines and lines starting with `#` are ignored. Both files
+are reread without restarting. An empty, missing or unreadable trigger file disables
+automatic chat lookups. These triggers do not invoke MCP tools or control the
+analyzer's documentation lookup during report generation.

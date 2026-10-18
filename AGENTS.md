@@ -51,8 +51,11 @@ Keep UI, orchestrator and task agent in their separate directories. Clients acce
 the backend through HTTP/SSE; they must not call agents or access SQLite directly.
 The API queues work; the worker executes intake and executor steps.
 
-The intake graph consults the documentation expert when the latest message mentions
-Perf. The expert is also reusable by execution agents through `ask()` or `as_tool()`.
+The intake graph consults the documentation expert when the latest user message
+matches a literal keyword or phrase in `profiler_docs_agent/triggers.txt`. Read this
+UTF-8 file each turn, ignoring blank/comment lines and matching case-insensitive word
+boundaries. Missing, unreadable or empty configuration disables automatic chat routing.
+Package the trigger file alongside the replaceable `Perf.md` reference document. The expert is also reusable by execution agents through `ask()` or `as_tool()`.
 Keep documentation as reference data and cite source lines. Empty or unmatched knowledge
 must produce an explicit limitation, never fabricated instructions. The expert does not
 run a profiler or establish measured results. Documentation edits are read on each lookup.
