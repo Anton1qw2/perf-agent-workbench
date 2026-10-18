@@ -113,3 +113,11 @@ check authorization; for 404, check the base URL and model ID; for 400, check JS
 mode support and the provider's request requirements. Provider response details are
 not exposed in application error messages; diagnose against the provider's own tools
 without logging credentials. Real providers need deployment-specific validation.
+
+## Browser request IDs
+
+`crypto.randomUUID()` is limited to secure contexts and may be unavailable when
+opening the Web UI through a remote HTTP address. The client falls back to UUID v4
+IDs generated with `crypto.getRandomValues()`, preserving request deduplication.
+A browser with neither API displays a Web Crypto compatibility error. After updating
+the Web client, hard-refresh the page to replace a cached script.

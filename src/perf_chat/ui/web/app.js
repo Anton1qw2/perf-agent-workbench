@@ -1,3 +1,16 @@
+// Request IDs must also work over HTTP on browsers without crypto.randomUUID.
+function createRequestId() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  if (typeof globalThis.crypto?.getRandomValues !== 'function') {
+    throw new Error('This browser cannot generate request IDs. Use a modern browser with Web Crypto support.');
+  }
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 const $ = id => document.getElementById(id);
 let cid = localStorage.getItem('perf-chat-conversation');
 let state, stream, contextSpec, contextVersion, dirty = false, refreshSequence = 0;
@@ -303,7 +316,7 @@ $('run').onclick = () => guard(async () => {
   $('run').disabled = true;
   try {
     await api('/conversations/' + current + '/runs', 'POST', {
-      spec_version: version, request_id: crypto.randomUUID()
+      spec_version: version, request_id: createRequestId()
     });
   } finally { if (cid === current) await refresh(); }
 });
@@ -317,7 +330,7 @@ $('composer').onsubmit = event => {
     if (!state || state.busy || pendingMessages.has(cid)) return;
     const current = cid, run = latest();
     const requestKey = JSON.stringify([current, run?.status === 'waiting' ? run.id : '', content]);
-    if (!messageRequests.has(requestKey)) messageRequests.set(requestKey, crypto.randomUUID());
+    if (!messageRequests.has(requestKey)) messageRequests.set(requestKey, createRequestId());
     pendingMessages.add(current);
     $('send').disabled = true;
     try {

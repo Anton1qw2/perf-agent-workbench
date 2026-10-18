@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, webcrypto } = require('node:crypto');
 const web = path.join(__dirname, '../src/perf_chat/ui/web');
 const deferred = () => {
   let resolve;
@@ -27,7 +27,7 @@ class Element {
   focus() {}
 }
 
-async function fixture(initialStorage = {}) {
+async function fixture(initialStorage = {}, cryptoApi = {randomUUID}) {
   const elements = Object.fromEntries([...fs.readFileSync(path.join(web, 'index.html'), 'utf8')
     .matchAll(/id="([^"]+)"/g)].map(match => [match[1], new Element()]));
   const conversations = Object.fromEntries(['a', 'b', 'c'].map(id => [id, {
@@ -40,7 +40,7 @@ async function fixture(initialStorage = {}) {
   const storage = new Map(Object.entries({'perf-chat-conversation': 'a', ...initialStorage}));
   const response = (body, status = 200) => ({ok: status < 400, status, json: async () => structuredClone(body)});
   const context = vm.createContext({
-    structuredClone, crypto: {randomUUID}, console,
+    structuredClone, crypto: cryptoApi, console,
     setTimeout: fn => { const id = ++timerId; timers.set(id, fn); return id; },
     clearTimeout: id => timers.delete(id),
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
@@ -200,4 +200,48 @@ test('settings groups collapse independently and restore their saved state', asy
   await f.run('open("b")');
   assert.equal(f.elements['repository-settings'].open, false);
   assert.equal(f.elements['profiler-settings'].open, false);
+});
+
+
+test('HTTP-compatible request IDs support Send and Run without randomUUID', async () => {
+  const f = await fixture({}, {getRandomValues: bytes => webcrypto.getRandomValues(bytes)});
+  f.elements.input.value = 'Optimize allocations';
+  f.submit('composer');
+  await settle();
+  f.elements.run.onclick();
+  await settle();
+  const commands = f.requests.filter(r => r.method === 'POST');
+  assert.equal(commands.length, 2);
+  assert.equal(commands[0].url, '/api/conversations/a/messages');
+  assert.equal(commands[1].url, '/api/conversations/a/runs');
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  for (const request of commands) assert.match(request.body.request_id, uuid);
+  assert.notEqual(commands[0].body.request_id, commands[1].body.request_id);
+});
+
+test('fallback request ID is reused after an uncertain message failure', async () => {
+  const f = await fixture({}, {getRandomValues: bytes => webcrypto.getRandomValues(bytes)});
+  let failed = false;
+  f.intercept(request => {
+    if (request.method === 'POST' && !failed) {
+      failed = true;
+      return Promise.reject(new Error('Connection lost'));
+    }
+  });
+  f.elements.input.value = 'Optimize allocations';
+  f.submit('composer'); await settle();
+  f.submit('composer'); await settle();
+  const commands = f.requests.filter(r => r.method === 'POST');
+  assert.equal(commands.length, 2);
+  assert.equal(commands[0].body.request_id, commands[1].body.request_id);
+});
+
+test('missing Web Crypto produces an actionable error without sending a command', async () => {
+  const f = await fixture({}, undefined);
+  f.run('globalThis.crypto = undefined');
+  f.elements.input.value = 'Optimize allocations';
+  f.submit('composer'); await settle();
+  assert.match(f.elements.error.textContent, /Web Crypto support/);
+  assert.equal(f.requests.filter(r => r.method === 'POST').length, 0);
+  assert.equal(f.elements.input.value, 'Optimize allocations');
 });
