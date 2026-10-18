@@ -76,7 +76,9 @@ async function fixture(initialStorage = {}, cryptoApi = {randomUUID}) {
       return response({});
     }
   });
-  vm.runInContext(fs.readFileSync(path.join(web, 'app.js'), 'utf8'), context);
+  for (const script of ['markdown-it.min.js', 'markdown.js', 'app.js']) {
+    vm.runInContext(fs.readFileSync(path.join(web, script), 'utf8'), context);
+  }
   await settle();
   return {
     elements, conversations, connections, requests, response, timers, storage,
@@ -244,4 +246,38 @@ test('missing Web Crypto produces an actionable error without sending a command'
   assert.match(f.elements.error.textContent, /Web Crypto support/);
   assert.equal(f.requests.filter(r => r.method === 'POST').length, 0);
   assert.equal(f.elements.input.value, 'Optimize allocations');
+});
+
+
+test('chat and clarification render Markdown while preserving roles and code whitespace', async () => {
+  const f = await fixture();
+  f.conversations.a.messages = [
+    {role: 'assistant', content: '# Plan\n\n**Optimize** with *care* and `perf`.\n\n1. Measure\n2. Compare\n\n```cpp\n  if (a < b) {\n    run();\n  }\n```\n\n| Metric | Value |\n| --- | --- |\n| CPU | 10 |\n\n[Docs](https://example.com)'},
+    {role: 'user', content: 'Use **staging**'},
+    {role: 'executor', content: '> Synthetic result'}
+  ];
+  f.conversations.a.runs = [{id: 'run', status: 'waiting', clarification: {question: 'Choose **one**:\n- A\n- B'}}];
+  await f.run('refresh()');
+  const messages = f.elements.messages.children;
+  assert.equal(messages[0].children[0].textContent, 'Assistant');
+  const html = messages[0].children[1].innerHTML;
+  for (const tag of ['h1', 'strong', 'em', 'code', 'ol', 'pre', 'table']) assert.ok(html.includes(`<${tag}`), tag);
+  assert.ok(html.includes('  if (a &lt; b) {\n    run();\n  }'));
+  assert.ok(html.includes('href="https://example.com"'));
+  assert.match(messages[1].children[1].innerHTML, /<strong>staging<\/strong>/);
+  assert.match(messages[2].children[1].innerHTML, /<blockquote>/);
+  assert.match(f.elements.question.innerHTML, /<strong>one<\/strong>/);
+  assert.match(f.elements.question.innerHTML, /<ul>/);
+});
+
+test('Markdown escapes HTML, rejects unsafe links and never embeds remote images', async () => {
+  const f = await fixture();
+  const text = '<script>alert(1)</script>\n<img src=x onerror=alert(1)>\n\n[x](javascript:alert(1)) [x](vbscript:alert(1)) [x](data:text/html;base64,PHNjcmlwdD4=)\n\n![diagram](https://tracker.example/pixel)\n\n`<svg onload=alert(1)>`';
+  f.conversations.a.messages = [{role: 'assistant', content: text}];
+  await f.run('refresh()');
+  const html = f.elements.messages.children[0].children[1].innerHTML;
+  assert.ok(html.includes('&lt;script&gt;'));
+  assert.ok(!/<(?:script|img|svg)\b/i.test(html));
+  assert.ok(!/href="(?:javascript|vbscript|data):/i.test(html));
+  assert.ok(!html.includes('src="https://tracker.example'));
 });

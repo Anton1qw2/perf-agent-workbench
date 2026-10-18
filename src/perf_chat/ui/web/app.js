@@ -137,7 +137,9 @@ async function refresh() {
     const div = document.createElement('div'); div.className = 'message ' + message.role;
     const role = document.createElement('span'); role.className = 'role';
     role.textContent = ({user: 'You', executor: 'Executor'})[message.role] || 'Assistant';
-    div.append(role, document.createTextNode(message.content)); $('messages').append(div);
+    const content = document.createElement('div'); content.className = 'markdown';
+    renderMessageMarkdown(content, message.content);
+    div.append(role, content); $('messages').append(div);
   }
   $('messages').scrollTop = nearBottom ? $('messages').scrollHeight : scrollTop;
   if (!dirty) renderContext();
@@ -151,7 +153,7 @@ async function refresh() {
   $('cancel').disabled = !active || run.status === 'cancelling';
   $('send').disabled = state.busy || pendingMessages.has(cid);
   $('question').hidden = run?.status !== 'waiting';
-  $('question').textContent = run?.clarification?.question || '';
+  renderMessageMarkdown($('question'), run?.clarification?.question || '');
   $('execution').textContent = run ? `${statusNames[run.status]} · ${run.result?.summary || run.progress || ''}` : '';
 }
 

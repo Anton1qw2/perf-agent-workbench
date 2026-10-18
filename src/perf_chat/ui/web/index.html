@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>chats</title><link rel="stylesheet" href="/style.css">
+  <script src="/markdown-it.min.js" defer></script>
+  <script src="/markdown.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -30,7 +32,7 @@
     </header>
     <div id="error" role="alert" hidden></div>
     <section id="messages" aria-live="polite"></section>
-    <div id="question" hidden></div>
+    <div id="question" class="markdown" hidden></div>
     <div id="execution" class="muted" aria-live="polite"></div>
     <form id="composer"><label for="input">Message</label><div class="compose-row"><textarea id="input" rows="3" maxlength="20000" placeholder="Describe what you want to optimize…" required></textarea><button id="send" class="primary">Send <span aria-hidden="true">↗</span></button></div><small>Ctrl + Enter to send</small></form>
   </main>

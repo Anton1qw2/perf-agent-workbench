@@ -67,7 +67,7 @@ h2 { font-size: 15px; margin: 0; }
 .badge { font-size: 12px; padding: 4px 8px; border-radius: 6px; background: #f3f6fb; color: var(--muted); white-space: nowrap; }
 #messages, #composer, #error, #question, #execution { width: 100%; max-width: 880px; margin-inline: auto; }
 #messages { flex: 1; overflow: auto; padding: 28px 0; min-height: 100px; scrollbar-width: thin; }
-.message { margin: 0 0 28px; max-width: 100%; font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message { margin: 0 0 28px; max-width: 100%; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
 .message .role { font-size: 12px; font-weight: 600; display: block; color: var(--muted); margin-bottom: 6px; }
 .message.user { width: fit-content; max-width: 82%; margin-left: auto; background: #edf3ff; padding: 14px 18px; border-radius: 16px; }
 .message.assistant .role { color: #1d4ed8; }
@@ -139,3 +139,28 @@ body.context-open .details { background: white; }
   #send { align-self: flex-end; }
   .message.user { max-width: 94%; }
 }
+
+/* Constrain Markdown to the message column, including narrow overlay layouts. */
+.markdown { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown pre { margin: 0 0 12px; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 {
+  margin: 18px 0 8px; line-height: 1.35; font-weight: 600;
+}
+.markdown h1 { font-size: 1.4em; }
+.markdown h2 { font-size: 1.25em; }
+.markdown h3 { font-size: 1.1em; }
+.markdown h4, .markdown h5, .markdown h6 { font-size: 1em; }
+.markdown ul, .markdown ol { padding-left: 24px; }
+.markdown li > p { margin-bottom: 6px; }
+.markdown li > ul, .markdown li > ol { margin-bottom: 0; }
+.markdown a { color: var(--blue-600); text-decoration: underline; }
+.markdown code { font-family: Consolas, monospace; font-size: .9em; background: #eef2f8; padding: 2px 4px; border-radius: 4px; }
+.markdown pre { max-width: 100%; overflow-x: auto; padding: 12px; background: #f3f6fb; border: 1px solid var(--line); border-radius: 8px; white-space: pre; }
+.markdown pre code { background: transparent; padding: 0; border-radius: 0; overflow-wrap: normal; }
+.markdown blockquote { padding-left: 12px; border-left: 3px solid var(--blue-300); color: var(--muted); }
+.markdown table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin-bottom: 12px; }
+.markdown th, .markdown td { padding: 6px 10px; border: 1px solid var(--line); text-align: left; }
+.markdown th { background: #f3f6fb; }
+.markdown hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }

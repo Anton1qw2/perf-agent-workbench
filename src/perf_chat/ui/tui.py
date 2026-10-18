@@ -3,6 +3,7 @@ import json
 import os
 
 from dotenv import load_dotenv
+from rich.markdown import Markdown
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Footer, Header, Input, RichLog, Static
@@ -70,7 +71,8 @@ class PerformanceChat(App):
         log.clear()
         for message in self.state["messages"]:
             role = {"user": "You: ", "executor": "Executor: "}.get(message["role"], "Agent: ")
-            log.write(role + message["content"])
+            log.write(role)
+            log.write(Markdown(message["content"], hyperlinks=False))
         runs = self.state["runs"]
         run = runs[0] if runs else None
         if run and run.get("progress") and not run.get("result"):

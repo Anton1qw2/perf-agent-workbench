@@ -44,6 +44,9 @@ and acceptance criteria in chat, then click **Run**. Profile is optional; profil
 analysis uses it as the MCP server's `result_id`. Reply to clarification questions
 in chat. Launch requires a task summary and no unresolved questions.
 
+Chat messages support Markdown in Web and TUI. Web also renders tables and fenced
+code blocks; raw HTML is escaped and remote images are not loaded.
+
 TUI commands include `/new`, `/open ID`, `/run`, `/cancel` and
 `/set target.repository=...`. F2 toggles project settings.
 
