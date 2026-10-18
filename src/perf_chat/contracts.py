@@ -65,12 +65,11 @@ class PerformanceTask(StrictModel):
     open_questions: list[str] = Field(default_factory=list)
 
     def missing_fields(self) -> list[str]:
-        required = {
-            "target.repository": self.target.repository,
-            "target.branch": self.target.branch,
-            "summary": self.summary,
-        }
-        missing = [k for k, v in required.items() if v is None or v == ""]
+        missing = []
+        if not self.target.repository and not self.target.profile:
+            missing.append("target.repository_or_profile")
+        if not self.summary:
+            missing.append("summary")
         if self.open_questions:
             missing.append("open_questions")
         return missing

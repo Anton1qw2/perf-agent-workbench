@@ -281,3 +281,25 @@ test('Markdown escapes HTML, rejects unsafe links and never embeds remote images
   assert.ok(!/href="(?:javascript|vbscript|data):/i.test(html));
   assert.ok(!html.includes('src="https://tracker.example'));
 });
+
+
+for (const target of [{profile: 'result-7'}, {repository: 'local/repo'}]) {
+  test(`Run accepts one input: ${Object.keys(target)[0]}`, async () => {
+    const f = await fixture();
+    f.conversations.a.spec.target = target;
+    f.conversations.a.missing_fields = [];
+    await f.run('refresh()');
+    assert.equal(f.elements.run.disabled, false);
+    f.elements.run.onclick(); await settle();
+    assert.equal(f.requests.filter(r => r.method === 'POST' && r.url.endsWith('/runs')).length, 1);
+  });
+}
+
+test('Run remains disabled without either analysis input', async () => {
+  const f = await fixture();
+  f.conversations.a.spec.target = {};
+  f.conversations.a.missing_fields = ['target.repository_or_profile'];
+  await f.run('refresh()');
+  assert.equal(f.elements.run.disabled, true);
+  assert.match(f.elements.run.title, /repository or profiler result ID/);
+});

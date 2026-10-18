@@ -108,38 +108,54 @@ class ProfileAnalysisExecutor:
             return ask("options", "Provide analysis options as a JSON object, or {} for defaults.")
         if not options.get("result_id"):
             return ask("result_id", "Provide the profiler result_id to analyze.")
+        source_limitation = None
         validating_source = False
         try:
             data = dict(options)
             if options.get("source") is not None:
                 validating_source = True
                 source = SourceOptions.model_validate(options["source"])
-                if (
-                    source.policy != "off"
-                    and source.commit
-                    and (
-                        source.scope_repository != task.target.repository
-                        or source.scope_ref != task.target.branch
-                    )
-                ):
-                    return ask(
-                        "source",
-                        "Confirm the exact commit with scope_repository and scope_ref matching the current project, or set commit to null.",
-                    )
-                if (
-                    source.policy != "off"
-                    and cursor.get("source_snapshot")
-                    and source.commit != cursor["source_snapshot"].get("requested_commit")
-                ):
-                    return ask(
-                        "source",
-                        "The source snapshot is frozen. Start a new run to select a different commit, or set policy to off.",
-                    )
-                data["source"] = SourceRequest(
-                    repository=task.target.repository or "",
-                    ref=task.target.branch or "",
-                    **source.model_dump(),
-                ).model_dump()
+                if not task.target.repository or not task.target.branch:
+                    if source.policy == "required":
+                        return ask(
+                            "source",
+                            'This run has no complete repository/branch binding for required source. '
+                            'Save Repository and Branch in project settings and start a new run, '
+                            'or reply {"policy":"off"} to analyze this profile without source.',
+                        )
+                    data["source"] = None
+                    if source.policy == "optional":
+                        source_limitation = (
+                            "Optional source enrichment skipped: this run has no complete "
+                            "repository/branch binding."
+                        )
+                else:
+                    if (
+                        source.policy != "off"
+                        and source.commit
+                        and (
+                            source.scope_repository != task.target.repository
+                            or source.scope_ref != task.target.branch
+                        )
+                    ):
+                        return ask(
+                            "source",
+                            "Confirm the exact commit with scope_repository and scope_ref matching the current project, or set commit to null.",
+                        )
+                    if (
+                        source.policy != "off"
+                        and cursor.get("source_snapshot")
+                        and source.commit != cursor["source_snapshot"].get("requested_commit")
+                    ):
+                        return ask(
+                            "source",
+                            "The source snapshot is frozen. Start a new run to select a different commit, or set policy to off.",
+                        )
+                    data["source"] = SourceRequest(
+                        repository=task.target.repository or "",
+                        ref=task.target.branch or "",
+                        **source.model_dump(),
+                    ).model_dump()
                 validating_source = False
             request = AnalysisRequest.model_validate(data)
         except ValueError as exc:
@@ -183,6 +199,8 @@ class ProfileAnalysisExecutor:
             else None
         )
         report = self.agent.analyze(request, deadline=deadline, source_snapshot=snapshot)
+        if source_limitation:
+            report.limitations.append(source_limitation)
         if report.status == "needs_input":
             return self._clarification(
                 run_id,

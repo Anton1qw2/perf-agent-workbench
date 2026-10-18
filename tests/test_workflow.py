@@ -309,3 +309,57 @@ def test_context_only_does_not_replace_chat_task(system):
     assert updated["spec"]["details"]["conversation_notes"]
     rid = start(client, cid, updated["spec"]["spec_version"])
     assert store.run(rid)["task"]["target"]["branch"] == "main"
+
+
+@pytest.mark.parametrize("target, expected", [
+    ({"profile": "result-7"}, []),
+    ({"repository": "local/repo"}, []),
+    ({"repository": "local/repo", "branch": "main"}, []),
+    ({"repository": "local/repo", "profile": "result-7"}, []),
+    ({}, ["target.repository_or_profile"]),
+    ({"branch": "main"}, ["target.repository_or_profile"]),
+    ({"repository": " ", "profile": " "}, ["target.repository_or_profile"]),
+])
+def test_launch_accepts_either_repository_or_profile(target, expected):
+    task = PerformanceTask(summary="Inspect performance", target=target)
+    assert task.missing_fields() == expected
+    task.summary = ""
+    assert "summary" in task.missing_fields()
+    task.open_questions = ["Which workload should be analyzed?"]
+    assert "open_questions" in task.missing_fields()
+
+
+@pytest.mark.parametrize("executor, target", [
+    ("demo", {"repository": "local/repo"}),
+    ("profile-demo", {"profile": "result-7"}),
+    ("profile-demo", {"repository": "local/repo"}),
+])
+def test_run_with_a_single_analysis_input(tmp_path, executor, target):
+    settings = Settings(db_path=str(tmp_path / "single-input.sqlite3"), executor_mode=executor)
+    client = TestClient(create_app(settings))
+    worker = Worker(settings)
+    cid = client.post("/api/conversations").json()["id"]
+    state = client.get(f"/api/conversations/{cid}").json()
+    state["spec"].update(summary="Inspect performance", target=target)
+    response = client.put(f"/api/conversations/{cid}/spec", json={
+        "spec": state["spec"], "expected_version": state["spec"]["spec_version"],
+    })
+    assert response.status_code == 200
+    state = response.json()
+    assert state["missing_fields"] == []
+    rid = start(client, cid, state["spec"]["spec_version"])
+    for _ in range(8):
+        worker.tick()
+        run = worker.store.run(rid)
+        if run["status"] == "waiting":
+            if executor == "profile-demo":
+                assert run["clarification"]["fields"] == ["result_id"]
+                answer = "result-7"
+            else:
+                answer = "Use staging"
+            worker.store.resume(rid, ClarificationAnswer(
+                request_id=run["clarification"]["request_id"], answer=answer,
+            ))
+        if run["status"] in {"demo", "failed", "succeeded"}:
+            break
+    assert worker.store.run(rid)["status"] == "demo"

@@ -15,7 +15,10 @@ Tasks vary: clarify them through conversation. Put the current task description 
 and agreed parameters and acceptance criteria in details. Do not require a fixed set of
 metrics, a benchmark or a numeric goal for every task. List only material unresolved
 questions in open_questions and remove answered questions. An empty list means the task is clear.
-target.profile is an optional opaque reference (path or ID), currently a placeholder.
+Launch requires either target.repository or target.profile, not both. Do not add an
+open question for the missing alternative. A profile-only task needs no branch.
+Ask for a branch only when source resolution for a repository-based task needs it.
+target.profile is an opaque reference (path or ID).
 Do not read the profile or infer its contents. current.target takes precedence over
 older messages; change it only when explicitly instructed by a new user message.
 Write generated descriptions and questions in English.

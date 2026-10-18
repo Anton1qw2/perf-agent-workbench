@@ -206,7 +206,10 @@ python -m pip install -e ".[mcp]"
 button. `demo` keeps the original executor scenario. API and worker must use the same
 configuration and be restarted after a change. In profile modes, enter the server's
 `result_id` in Profile, describe the task in chat, then Run. Repository and Branch
-remain required by the existing task contract. If Profile is empty, execution asks
+are not required for profile-only analysis. If source settings are retained without
+both Repository and Branch, disabled source is ignored and optional source is skipped
+with an explicit limitation. Required source asks the user to configure a new run or
+disable source for the current immutable run. If Profile is empty, execution asks
 for a result ID. If metrics are unknown or more than six are available, execution
 asks the user to select names as a JSON array. The answer resumes the durable run.
 
@@ -408,8 +411,9 @@ in `schemas/` with `python scripts/export_contracts.py`.
 
 `target.branch` selects the branch; `target.profile` stores an opaque path or ID.
 `summary` holds the task description, `details` holds agreed parameters, and
-`open_questions` holds material unresolved questions. Launch requires a repository,
-branch, nonempty summary and no open questions; profile is optional.
+`open_questions` holds material unresolved questions. Launch requires either a repository or a profile,
+a nonempty summary and no open questions. A branch is needed only when resolving
+source; profile-only analysis does not require one.
 Legacy typed fields remain optional for compatibility and facts extracted from chat.
 Legacy `target.revision` is read from saved snapshots but is not displayed and does
 not replace branch: a commit hash is not accepted as a branch name.

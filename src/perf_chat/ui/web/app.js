@@ -149,7 +149,7 @@ async function refresh() {
   $('status').textContent = state.busy ? 'Agent is replying…' : (run ? statusNames[run.status] : 'Ready');
   $('run').disabled = dirty || state.busy || !!active || state.missing_fields.length > 0;
   $('run').title = dirty ? 'Save project settings before running'
-    : state.missing_fields.length ? 'Clarify the task in chat and provide a repository and branch' : '';
+    : state.missing_fields.length ? 'Clarify the task in chat and provide a Git repository or profiler result ID' : '';
   $('cancel').disabled = !active || run.status === 'cancelling';
   $('send').disabled = state.busy || pendingMessages.has(cid);
   $('question').hidden = run?.status !== 'waiting';

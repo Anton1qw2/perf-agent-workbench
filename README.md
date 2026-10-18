@@ -39,10 +39,13 @@ Demo intake works without model credentials.
 
 ## Usage and configuration
 
-Set Repository and Branch in **Project settings**, describe the goal, constraints
-and acceptance criteria in chat, then click **Run**. Profile is optional; profile
-analysis uses it as the MCP server's `result_id`. Reply to clarification questions
-in chat. Launch requires a task summary and no unresolved questions.
+Provide either a Git Repository or a Profile in **Project settings**, describe the
+goal, constraints and acceptance criteria in chat, then click **Run**. Both inputs
+can be supplied together. Profile analysis uses Profile as the MCP `result_id` and
+does not require a repository or branch. Source access may require a branch.
+Launch requires a task summary and no unresolved intake questions. The selected
+executor requests additional data during the run when needed; a profile analyzer
+may ask for a result ID after a repository-only launch. Reply in chat.
 
 Chat messages support Markdown in Web and TUI. Web also renders tables and fenced
 code blocks; raw HTML is escaped and remote images are not loaded.

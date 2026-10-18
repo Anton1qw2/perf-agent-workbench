@@ -72,8 +72,12 @@ run a profiler or establish measured results. Documentation edits are read on ea
 - Clarify goals, constraints, acceptance criteria and optimization details through
   chat. Do not add a universal mandatory metrics questionnaire or technical form.
 - Store the task description in `summary`, agreed parameters in `details`, and material
-  unresolved questions in `open_questions`. Launch readiness requires a repository,
-  branch, nonempty summary and no open questions. Profile is optional.
+  unresolved questions in `open_questions`. Launch readiness requires a nonempty
+  summary, no open questions, and either a repository or a profile. Do not require
+  both inputs or a branch for profile-only analysis. Ask for a branch only when
+  source resolution needs it. The selected executor requests missing analysis data
+  after launch; do not require both inputs at intake just because one executor
+  needs a profiler result ID.
 - Keep legacy optional contract fields compatible with existing saved data.
 
 ## Execution and persistence rules

@@ -303,3 +303,37 @@ def test_expired_analysis_does_not_start_more_calls_or_succeed(monkeypatch, tmp_
     assert run["status"] == "failed"
     assert "budget exhausted" in run["result"]["summary"]
     assert run["cursor"]["analysis"]["evidence"][-1]["operation"] == "get_hotspots"
+
+
+@pytest.mark.parametrize("target", [
+    {"profile": "result-7"},
+    {"profile": "result-7", "repository": "local/repo"},
+    {"profile": "result-7", "branch": "main"},
+])
+@pytest.mark.parametrize("policy", ["off", "optional", "required"])
+def test_missing_source_binding_does_not_trap_single_input_run(target, policy):
+    executor = ProfileAnalysisExecutor(ProfileAnalysisAgent(DemoProfilerGateway()))
+    task = PerformanceTask(
+        summary="Analyze CPU", target=target,
+        details={"profile_analysis": {"source": {"policy": policy}}},
+    )
+    snapshot = task.model_dump()
+    assert task.missing_fields() == []
+    _, cursor = executor.step("single-input", task, {})
+    event, cursor = executor.step("single-input", task, cursor)
+    if policy == "required":
+        assert event.type == "clarification"
+        assert event.clarification.fields == ["source"]
+        assert "start a new run" in event.clarification.question
+        event, cursor = executor.step(
+            "single-input", task, cursor,
+            ClarificationAnswer(
+                request_id=event.clarification.request_id, answer='{"policy":"off"}',
+            ),
+        )
+    assert event.type == "result"
+    assert event.result.status == "demo"
+    assert cursor["analysis"]["request"]["source"] is None
+    if policy == "optional":
+        assert any("Optional source enrichment skipped" in item for item in event.result.limitations)
+    assert task.model_dump() == snapshot
