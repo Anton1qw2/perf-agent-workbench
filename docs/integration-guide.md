@@ -264,14 +264,20 @@ keys are `metrics`, `include_asm` and optional `source`.
 References are checked structurally; factual interpretation still requires review.
 The private MCP server and real model have not been exercised in this workspace.
 
-## Perf documentation expert
+## Profiler documentation expert
 
 The knowledge base is `src/perf_chat/profiler_docs_agent/Perf.md`. It is intentionally
-empty. Add UTF-8 Markdown documentation, including the applicable Perf versions and
+empty. Replace its contents with UTF-8 Markdown documentation for your profiler, including versions and
 platforms. The file is included in installed packages and read again for each lookup.
 
-The intake graph calls the expert when the latest user message mentions `Perf`
-(case insensitive). Ask, for example, `How do I collect hotspots with Perf?`.
+The intake graph calls the expert when the latest user message matches a keyword
+or phrase in `src/perf_chat/profiler_docs_agent/triggers.txt`. Put one literal keyword
+or phrase per line. Matching ignores case and requires word boundaries; blank lines
+and lines starting with `#` are ignored. The default keyword is `perf`, for example
+`How do I collect hotspots with Perf?`. The file is reread each turn without a restart.
+An empty, missing or unreadable trigger file disables automatic chat lookups.
+These triggers do not invoke MCP tools or control documentation lookup during report
+generation.
 The expert searches bounded excerpts and returns source line ranges and a file hash.
 Empty, missing, unreadable or unmatched documentation produces an explicit limitation
 without calling a model. Demo mode shows matching excerpts; LLM mode synthesizes an

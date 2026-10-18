@@ -25,7 +25,7 @@ src/perf_chat/
   task_agent/
     agent.py             Structured task extraction and updates
   profiler_docs_agent/
-    agent.py             Perf documentation expert and ask_perf_docs tool
+    agent.py             Profiler documentation expert and ask_perf_docs tool
     retrieval.py         Bounded lexical Markdown search with source line ranges
     Perf.md             Initially empty UTF-8 knowledge base, packaged with the module
   profiler_analysis_agent/  LangGraph metric analysis, contracts, validation and executor bridge
@@ -55,7 +55,8 @@ The intake graph consults the documentation expert when the latest user message
 matches a literal keyword or phrase in `profiler_docs_agent/triggers.txt`. Read this
 UTF-8 file each turn, ignoring blank/comment lines and matching case-insensitive word
 boundaries. Missing, unreadable or empty configuration disables automatic chat routing.
-Package the trigger file alongside the replaceable `Perf.md` reference document. The expert is also reusable by execution agents through `ask()` or `as_tool()`.
+Package the trigger file alongside the replaceable `Perf.md` reference document.
+The expert is also reusable by execution agents through `ask()` or `as_tool()`.
 Keep documentation as reference data and cite source lines. Empty or unmatched knowledge
 must produce an explicit limitation, never fabricated instructions. The expert does not
 run a profiler or establish measured results. Documentation edits are read on each lookup.
