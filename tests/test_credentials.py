@@ -4,6 +4,7 @@ import json
 from uuid import uuid4
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from perf_chat.api import create_app
@@ -14,6 +15,14 @@ from perf_chat.integrations.profiler_mcp import MCPProfilerGateway
 from perf_chat.profiler_analysis_agent.source_context import prepare_source
 from perf_chat.profiler_analysis_agent.source_contracts import SourceLocation, SourceRequest
 from perf_chat.worker import Worker
+
+
+@pytest.fixture(autouse=True)
+def isolated_token_key(monkeypatch):
+    # Tests never depend on or reuse a deployment's persistent encryption key.
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("PERF_CHAT_SECRET_KEY", Fernet.generate_key().decode())
 
 
 def test_tokens_are_encrypted_and_not_returned_or_sent_to_models(tmp_path):
@@ -319,3 +328,13 @@ def test_gitlab_search_skips_unsupported_files_but_propagates_access_errors(monk
     monkeypatch.setattr(gateway, "_blob", inaccessible)
     with pytest.raises(SourceUnavailable, match="Access denied"):
         gateway.find_source(gateway.repository, "a" * 40, "hot")
+
+
+def test_fernet_round_trip():
+    # Exercise the non-Windows backend on every platform without changing os.name.
+    from perf_chat.credentials import _fernet
+
+    token = b"synthetic-portable-token"
+    encrypted = _fernet().encrypt(token)
+    assert token not in encrypted
+    assert _fernet().decrypt(encrypted) == token

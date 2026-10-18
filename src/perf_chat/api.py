@@ -200,7 +200,8 @@ def create_app(settings: Settings | None = None):
 def main():
     import uvicorn
 
-    uvicorn.run(create_app(), host="127.0.0.1", port=8000)
+    settings = Settings.from_env()
+    uvicorn.run(create_app(settings), host=settings.api_host, port=settings.api_port)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 @dataclass(frozen=True)
 class Settings:
     db_path: str = "data/perf-chat.sqlite3"
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
     mode: str = "demo"
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
@@ -22,6 +24,10 @@ class Settings:
     model_input_bytes: int = 120_000
 
     def __post_init__(self):
+        if not self.api_host.strip():
+            raise ValueError("PERF_CHAT_API_HOST must not be empty")
+        if not 1 <= self.api_port <= 65535:
+            raise ValueError("PERF_CHAT_API_PORT must be between 1 and 65535")
         if not isinstance(self.git_repositories, dict) or not all(
             isinstance(key, str) and key and isinstance(value, str) and value
             for key, value in self.git_repositories.items()
@@ -43,6 +49,8 @@ class Settings:
         load_dotenv()
         value = cls(
             db_path=os.getenv("PERF_CHAT_DB", "data/perf-chat.sqlite3"),
+            api_host=os.getenv("PERF_CHAT_API_HOST", "127.0.0.1"),
+            api_port=int(os.getenv("PERF_CHAT_API_PORT", "8000")),
             mode=os.getenv("PERF_CHAT_MODE", "demo"),
             base_url=os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
             api_key=os.getenv("LLM_API_KEY", ""),

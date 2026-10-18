@@ -148,14 +148,59 @@ Use separate terminals with the same working directory and environment:
 .\.venv\Scripts\python.exe -m perf_chat.ui.tui
 ```
 
-The default API/Web address is `http://127.0.0.1:8000`. A development preview may use
+The default API/Web address is `http://127.0.0.1:8000`. Configure the listener
+with `PERF_CHAT_API_HOST` and `PERF_CHAT_API_PORT`. A development preview may use
 another port; configure the TUI's `PERF_CHAT_API_URL` accordingly. API and worker
 must use the same `PERF_CHAT_DB`.
 
-`PERF_CHAT_MODE=demo` works without model credentials. For real intake agents, set
-`PERF_CHAT_MODE=llm`, `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` in the environment.
-The provider must support Chat Completions and JSON object responses. Keep keys out
-of frontend code, logs and version control.
+### LLM connection contract
+
+`PERF_CHAT_MODE=demo` makes no model calls. To connect a hosted or self-hosted model,
+configure the existing project-root `.env` or backend process environment:
+
+```dotenv
+PERF_CHAT_MODE=llm
+LLM_BASE_URL=https://inference.example.com/v1
+LLM_MODEL=your-served-model-id
+LLM_API_KEY=your-provider-key
+LLM_TIMEOUT_SECONDS=90
+```
+
+`llm.py` sends a non-streaming POST to `{LLM_BASE_URL}/chat/completions`. Include the
+server's API prefix (commonly `/v1`) in the base URL, but not `/chat/completions`.
+Use the exact model ID/deployment alias accepted by the server. Local servers may
+use a loopback HTTP URL; remote servers should use HTTPS. The URL must be reachable
+from the backend process; container loopback does not refer to the host machine.
+
+The compatibility requirements are:
+
+- Accept `model` and `messages` with `system` and `user` roles.
+- Support `response_format={"type":"json_object"}` for structured task extraction
+  and analysis. Ordinary conversational text alone is insufficient.
+- Return a nonempty string at `choices[0].message.content`; parsed JSON is validated
+  against application contracts. Streaming-only, tool-call-only and native provider
+  APIs require an adapter or compatibility gateway.
+- Accept Bearer authentication if enabled: a nonempty `LLM_API_KEY` adds an
+  `Authorization` header. An empty key omits that header and works only if the server
+  permits it. Do not require a dummy key for an unauthenticated local server.
+
+Timeouts must be finite, greater than zero and at most 120 seconds; calls also obey
+the remaining execution deadline. No provider SDK is required. API and worker must
+use the same configuration and be restarted after changes. `load_dotenv()` does not
+override existing process environment variables.
+
+Verify `/api/health` reports `mode=llm`, then submit a task and confirm a worker-generated
+reply. Health is not a provider connectivity test. Check credentials for HTTP 401/403,
+base URL/model ID for 404, and JSON response support for 400. Provider response details
+are intentionally not exposed to users or logged; validate compatibility separately
+without printing keys. A queued message usually requires checking worker liveness
+and the shared database before diagnosing the model.
+
+Keep keys out of frontend code, chat, prompts, logs and version control. LLM credentials
+come from backend environment configuration, separately from encrypted GitLab/profiler
+tokens managed in Project settings. Enabling LLM changes intake and enables profile
+interpretation; it does not select a production executor. `PERF_CHAT_EXECUTOR` remains
+a separate setting and defaults to `demo`.
 
 TUI commands include `/new`, `/open ID`, `/run`, `/cancel` and
 `/set target.repository=...`, `/set target.branch=...`, `/set target.profile=...`.

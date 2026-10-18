@@ -198,7 +198,7 @@ and the existing model settings. To use the real MCP server:
 python -m pip install -e ".[mcp]"
 # Configure in .env for both API and worker:
 # PERF_CHAT_EXECUTOR=profile-mcp
-# PROFILER_MCP_URL=http://your-server/mcp
+# PROFILER_MCP_URL=https://your-server/mcp
 # PROFILER_MCP_TIMEOUT_SECONDS=60
 ```
 
@@ -222,7 +222,7 @@ The standalone Python API and tool are also available to external execution agen
 from perf_chat.integrations.profiler_mcp import MCPProfilerGateway
 from perf_chat.profiler_analysis_agent import AnalysisRequest, ProfileAnalysisAgent
 
-agent = ProfileAnalysisAgent(MCPProfilerGateway("http://your-server/mcp"))
+agent = ProfileAnalysisAgent(MCPProfilerGateway("https://your-server/mcp"))
 report = agent.analyze(AnalysisRequest(result_id="result-7", goal="Inspect CPU hotspots"))
 tool = agent.as_tool()  # analyze_profile
 ```
@@ -310,6 +310,9 @@ src/perf_chat/
 
 ## Installation and startup
 
+For platform-specific commands and listener configuration, see
+[the deployment guide](deployment.md).
+
 Requires Python 3.11+. Run commands **from this project directory**.
 
 ```powershell
@@ -369,8 +372,9 @@ The provider must support `/chat/completions` and
 Pydantic validates the output. An invalid response produces `job.failed` without
 changing the specification. The key stays in the backend/worker environment.
 Real provider calls require your configuration and have not been separately validated.
-LLM mode changes intake only; the demo executor remains a demo until you connect the
-external execution infrastructure. Profile executors are selected separately as described above.
+LLM mode enables conversational intake and profile interpretation. The demo executor
+remains a demo until you connect the external execution infrastructure. Executor
+selection is configured separately as described above.
 
 ## Demo
 
