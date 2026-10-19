@@ -1,8 +1,10 @@
 # Git source context for profile analysis
 
-Status: the local-repository MVP described here is implemented. This document records
-the design and four critique iterations; see current configuration and
-usage in [the integration guide](integration-guide.md). A subsequent GitLab HTTPS API extension with backend token storage is now
+Status: historical design and four critique iterations, not the current analyzer
+workflow or configuration contract. The fixed metric/hotspot flow below has been
+replaced by dynamic MCP planning. See [the analyzer guide](analyzer-extension.md)
+and [the integration guide](integration-guide.md) for current behavior, including
+explicit local paths and planner-selected source. A subsequent GitLab HTTPS API extension with backend token storage is now
 available; trusted build-manifest linkage remains future work. The original plan
 below records the initial local-only scope.
 

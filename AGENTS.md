@@ -1,221 +1,247 @@
 # Project guide
 
-## Purpose
+## Purpose and boundaries
 
-The product is named **chats**; the Python package is `perf_chat` and the distribution
-is `perf-chat`. It is a local MVP for defining performance optimization tasks through
-a conversation and handing them to an external execution workflow.
+**chats** is a local MVP for defining performance optimization tasks through chat
+and handing them to external execution infrastructure. Python package: `perf_chat`;
+distribution: `perf-chat`. Web and TUI share an API, history and task state.
+Two LangGraph intake agents handle user communication and structured task extraction.
+The built-in profiler analyzer investigates evidence; external optimization agents
+connect through `ExecutorGateway`.
 
-Web and TUI clients share one API, conversation history and task state. Two intake
-agents use LangGraph: the task agent builds a structured specification, and the
-orchestrator communicates with the user. The actual optimization agents are developed
-separately and connect through `ExecutorGateway`.
+This MVP serves one local user without authentication or user isolation. Synthetic
+output never establishes real measurements, completed optimization or improvement.
+Private MCP, GitLab and LLM deployments require separate compatibility validation.
 
-## Architecture and ownership
+## Code map and ownership
+
+Paths are relative to the repository root.
+
+| Path | Responsibility |
+| --- | --- |
+| `src/perf_chat/ui/web/` | Vanilla HTML/CSS/JavaScript; no build step |
+| `src/perf_chat/ui/tui.py`, `ui/client.py` | Textual UI and HTTP/SSE client |
+| `src/perf_chat/orchestrator/` | User-facing agent and intake graph |
+| `src/perf_chat/task_agent/` | Structured task extraction and partial updates |
+| `src/perf_chat/profiler_docs_agent/` | Documentation expert, full-document loader, `Perf.md`, `triggers.txt` |
+| `src/perf_chat/profiler_analysis_agent/` | Dynamic graph, analysis/source contracts, context, reporting and executor bridge |
+| `src/perf_chat/integrations/` | MCP discovery/calls, JSON Schema validation, local Git and GitLab access |
+| `src/perf_chat/contracts.py` | Task, run, event and executor boundary models |
+| `src/perf_chat/api.py`, `worker.py`, `store.py` | HTTP/SSE, durable jobs and SQLite persistence |
+| `src/perf_chat/executor.py` | Demonstration executor |
+| `src/perf_chat/config.py`, `llm.py`, `runtime.py` | Settings, Chat Completions adapter and deadlines |
+| `src/perf_chat/credentials.py` | Backend token encryption |
+| `schemas/`, `scripts/export_contracts.py` | Generated schemas and their exporter |
+| `tests/` | Python regression tests and Node Web state tests |
+
+Keep UI, orchestrator and task extraction separate. Clients use HTTP/SSE; they must
+not invoke agents or access SQLite. The API queues work; the worker executes it.
+Task/executor models live in `src/perf_chat/contracts.py`; analyzer and source models
+live in `contracts.py` and `source_contracts.py` inside
+`src/perf_chat/profiler_analysis_agent/`.
+Edit models, then regenerate schemas; do not maintain generated schemas independently.
+
+## Task intake and UI
+
+- Documentation, comments, test examples, labels, built-in messages and prompts use
+  English. Preserve compatibility with saved optional contract fields.
+- Store the task description in `summary`, agreed parameters in `details`, and
+  material unresolved questions in `open_questions`. Partial LLM updates must not
+  erase agreed fields.
+- Launch requires a nonempty summary, no open questions, and either a repository
+  or a profile. Do not require both, a universal metrics questionnaire, or a branch
+  for profile-only analysis. Request missing execution data in chat.
+- Profile is an opaque MCP `result_id`, never a local file path. Repository-only
+  launches may subsequently need a result ID. Ask for a branch only when source
+  resolution needs it.
+- Preserve the compact blue design and shared composer with Send at bottom right.
+  Sidebars collapse to clickable rails, remember state independently and become
+  overlays on narrow screens. Repository and Profiler settings collapse separately.
+- Keep the execution status panel two lines high with scrolling; Copy copies all
+  text. Use calm red for errors, green for completion and blue for active work.
+  Animate only active work; clarification/reconnection stay static. Respect reduced
+  motion. A completion badge does not prove a performance improvement.
+- Preserve per-conversation drafts, protection against late HTTP responses, SSE
+  connection ownership and snapshot retries. A late snapshot must not clear an SSE
+  disconnect notice before reconnection.
+- Keep Web/TUI Markdown compatible. Escape raw HTML and reject unsafe links; Web
+  must not load remote images from chat messages.
+
+## Durable execution
+
+`ExecutorGateway.step(run_id, task, cursor, answer)` returns an event and a
+JSON-serializable cursor; `cancel(run_id)` handles cancellation. Supply the gateway
+to `Worker`. The integration owns graph state and LangGraph thread mappings.
+Task versions become run snapshots; clarification replies use `request_id`.
+
+SQLite WAL stores jobs and events. Jobs have leases and may be redelivered after
+failure; tolerate retries before a checkpoint transaction commits. Distinguish a
+step awaiting clarification from its resume with an answer. Cancellation is
+cooperative. Only one run may be active per conversation. Preserve optimistic
+version checks, request deduplication and atomic state/event updates.
+
+API and worker must agree on `PERF_CHAT_EXECUTOR`:
+
+| Value | Behavior |
+| --- | --- |
+| `demo` | Default synthetic execution scenario |
+| `profile-demo` | Dynamic graph with synthetic MCP data; deterministic model fixture when LLM mode is off |
+| `profile-mcp` | Real read-only MCP queries with bounded LLM planning |
+
+`PERF_CHAT_MODE` controls model use separately; it does not select an executor.
+Profiler, documentation and model calls share the run deadline. Reject late success
+and enforce total call timeouts. Use retry-stable clarification IDs, distinct for
+each new question. Preserve corrected analysis options across questions; current
+task summary/profile override stale copies in free-form details.
+
+## Dynamic profiler analysis
+
+The only built-in implementation is `DynamicProfilerAnalyzer` in `dynamic.py`.
+The fixed analyzer and its three-method profiler protocol were removed. Each durable
+worker step executes one graph node:
 
 ```text
-src/perf_chat/
-  ui/
-    web/                 Vanilla HTML, CSS and JavaScript; no build step
-    tui.py               Textual terminal interface
-    client.py            HTTP/SSE client for the TUI
-  orchestrator/
-    agent.py             User-facing orchestration agent
-    graph.py             LangGraph intake workflow
-  task_agent/
-    agent.py             Structured task extraction and updates
-  profiler_docs_agent/
-    agent.py             Profiler documentation expert and ask_perf_docs tool
-    retrieval.py         Full Markdown snapshot and section source registry
-    Perf.md             Initially empty UTF-8 knowledge base, packaged with the module
-  profiler_analysis_agent/  LangGraph metric analysis, contracts, validation and executor bridge
-  integrations/
-    profiler_mcp.py      Generic MCP discovery/calls and synthetic MCP fixture
-    git_source.py        Bounded read-only access to scoped local Git repositories
-    gitlab_source.py     Authenticated read-only GitLab API access to pinned objects
-  contracts.py           Pydantic models and executor boundary
-  api.py                 FastAPI REST endpoints, SSE and static assets
-  worker.py              Durable queue processing outside HTTP requests
-  store.py               SQLite persistence, versions, jobs, runs and events
-  executor.py            Demonstration executor gateway
-  llm.py                 OpenAI-compatible Chat Completions adapter
-  config.py              Environment configuration
-  credentials.py         Backend-only DPAPI/Fernet token encryption
-  runtime.py             Shared execution deadline enforcement
-schemas/                 Exported contract schemas
-scripts/export_contracts.py
-tests/                   Python and Node regression tests
+discover -> plan -> call/source -> plan -> ... -> report -> format_report
+              |
+              +-> clarification -> resume
 ```
 
-Keep UI, orchestrator and task agent in their separate directories. Clients access
-the backend through HTTP/SSE; they must not call agents or access SQLite directly.
-The API queues work; the worker executes intake and executor steps.
+The analyzer receives result ID, goal and optional repository/branch. It chooses
+profiler queries, bounded source reads, clarification or completion. Preserve these
+invariants when extending or replacing it:
 
-The intake graph consults the documentation expert when the latest user message
-matches a literal keyword or phrase in `profiler_docs_agent/triggers.txt`. Read this
-UTF-8 file each turn, ignoring blank/comment lines and matching case-insensitive word
-boundaries. Missing, unreadable or empty configuration disables automatic chat routing.
-Package the trigger file alongside the replaceable `Perf.md` reference document.
-The expert is also reusable by execution agents through `ask()` or `as_tool()`.
-The expert receives the full UTF-8 document, the current question and optional version/
-platform only, never task state, metrics, repository code or conversation history.
-Do not retrieve snippets or silently truncate the document. Bound the complete serialized
-model request using `PERF_CHAT_DOCS_MAX_INPUT_BYTES` (default 2000000); this byte budget
-is separate from the analyzer context budget and does not establish provider token capacity.
-Keep documentation as untrusted reference data. The first standalone Markdown link on
-the first content line after a heading supplies the section's HTTP(S) source URL;
-subsections inherit parent URLs. Parse headings outside fenced code; retain a content hash.
-Use registry IDs and render validated section source links, never Markdown line citations.
-Missing source URLs are explicitly local documentation. Return only the concise expert
-answer and cited source metadata downstream, never the full document. Empty, unavailable,
-unsupported or oversized documentation must produce an explicit limitation. Demo mode
-reports no synthesis. The expert does not run a profiler, browse links or establish
-measured results. Documentation edits are read on each lookup.
+- Configure the endpoint and `PROFILER_MCP_ALLOWED_TOOLS`; the allowlist defaults to
+  empty. Discovery, descriptions and annotations do not authorize calls. Allow only
+  read-only operations because calls may be redelivered.
+- Build arguments from discovered schemas, task context, evidence and answers.
+  Do not hardcode profiler tool names or require an argument map for new servers.
+  `include_asm` is a planning preference, not name-based authorization.
+- Validate arguments before checkpointing a call; schema mismatches return bounded
+  feedback without execution or echoing values. Revalidate in the gateway. Validate
+  input/output schemas without network retrieval and reject changed tool definitions.
+- `PROFILER_MCP_PROFILE_ARGUMENTS` is an optional legacy constraint, default `{}`.
+  Without it, schema validation does not establish profile identity; retain that
+  limitation rather than claiming a verified association.
+- `ProfileAnalyzer.step_analysis` / `AnalysisStep` is the replacement boundary.
+  Inject `Worker(..., analyzer_factory=...)`; factories receive per-run
+  `AnalysisServices`. Restore JSON checkpoints or a persistent external checkpointer;
+  do not rely on an in-memory graph surviving between worker steps.
+- Retain `analyzer_id` and `analyzer_state` in the cursor, including catalog,
+  decisions, evidence and the gateway configuration fingerprint. Pin endpoint,
+  allowlist and legacy argument policy. Fail closed on drift, including between
+  planning and execution. Do not switch implementations during a run; removed-analyzer
+  checkpoints require a new run. Keep saved reports readable.
+- Journal every issued analysis-input question, including host-generated ones.
+  Pass ordered question/answer pairs to planning and interpretation within the
+  shared model input budget. Answers are context, not measured evidence.
+- Require usable evidence before interpretation, including on budget exhaustion.
+  Null, empty arrays/objects and whitespace-only text are insufficient. Preserve
+  zero/false values without inventing their semantics.
+- Preserve server values and units, separate observations from hypotheses and
+  validate evidence citations. Do not add a calculations module or invent missing
+  metric semantics. Tool catalogs alone are not measurement evidence.
 
-## Product behavior
+The `report` node checkpoints analysis before `format_report`, which produces
+`ProfileAnalysis.chat_report`: deterministic Markdown, at most 16000 characters,
+without another model call. The executor enforces the same formatting boundary for
+custom structured reports. Accept complete fenced JSON before schema/citation
+validation. Retain invalid/free-form output in `analyzer_state.raw_interpretation`;
+show only a bounded, explicitly unvalidated excerpt with `insufficient_data` status,
+never accepted observations.
 
-- Documentation, code comments, test examples, interface labels, built-in messages
-  and agent prompts use English.
-- The main visual accent is blue. Preserve the current compact layout and shared
-  message-composer frame with its Send button at the bottom right.
-- Web status badges use calm red for errors, green for completed runs and blue for
-  work in progress. Animate dots and the thin header bar only during active work;
-  clarification and reconnection are static. Respect reduced-motion preferences.
-  A snapshot response must not clear an SSE disconnect notice before reconnection.
-- Both sidebars collapse to narrow clickable rails. Their expansion states are
-  remembered independently. On narrow screens, expanded panels behave as overlays.
-- Project settings group Repository (URL/alias, Branch, GitLab token) and Profiler
-  (Result ID, API token). Both groups collapse independently and remember state.
-  Profile is an optional opaque reference. The profile-analysis executor treats it
-  as the MCP server's result_id. It does not open local files automatically.
-- Clarify goals, constraints, acceptance criteria and optimization details through
-  chat. Do not add a universal mandatory metrics questionnaire or technical form.
-- Store the task description in `summary`, agreed parameters in `details`, and material
-  unresolved questions in `open_questions`. Launch readiness requires a nonempty
-  summary, no open questions, and either a repository or a profile. Do not require
-  both inputs or a branch for profile-only analysis. Ask for a branch only when
-  source resolution needs it. The selected executor requests missing analysis data
-  after launch; do not require both inputs at intake just because one executor
-  needs a profiler result ID.
-- Keep legacy optional contract fields compatible with existing saved data.
+Persist full reports in `run.cursor.analysis`. Keep chat summaries lightweight:
+evidence references and validated documentation links, not full profiler/source
+payloads. Retrieve full cursor/evidence through the dedicated run endpoint.
+Resuming formatting must not repeat profiler or model calls.
 
-## Execution and persistence rules
+## Repository source evidence
 
-`contracts.py` is the source of truth for integration models. `PerformanceTask`
-versions become snapshots for runs. `ExecutionEvent` reports progress, clarification
-or a result. Clarification replies are correlated through `request_id`.
+Options use `details.profile_analysis.source` and typed source contracts. Register
+aliases through `PERF_CHAT_GIT_REPOSITORIES` or scope an explicit user-selected local
+path to the task. Never clone/fetch or change a working tree. Optional source
+defaults to pinned `HEAD` when no branch is supplied.
 
-An executor implements `ExecutorGateway.step(run_id, task, cursor, answer)` and
-`cancel(run_id)`, and is supplied to `Worker`. The gateway owns its execution graph
-state and any mapping from run IDs to LangGraph thread IDs. The bundled executor is
-a demo: never present its output as real measurements or completed optimization.
-LLM mode changes the intake agents; it does not replace the demo executor.
+- Persist preparation outcomes (`resolved`, `unavailable`, `disabled`) before analysis
+  and preserve them across cursor transitions. Never re-resolve an accepted revision.
+  Source options cannot override task repository/branch; explicit commits require
+  matching `scope_repository` and `scope_ref`.
+- Missing configuration is optional. Clarify required selection in chat. Collect
+  required user-selected ranges independently of planner queries and prioritize
+  them. Model excerpts use `origin=model_selection`; explicit model ranges use
+  `resolution=model_location`. They cannot replace required user evidence.
+- Bound planner source queries to five, with at most five combined excerpts/32 KiB.
+  `context_builder.py` applies one model input budget and citation registry across
+  profiler evidence, documentation answers and source. Required source must not
+  disappear silently when the budget is exceeded.
+- Read only regular UTF-8 Git blobs from scoped paths, aliases or GitLab HTTPS URLs.
+  Do not follow links, execute code, hydrate LFS or collect unbounded process output.
+  Preserve whitespace, delivered line ranges, hashes and pinned blob identity.
+- Text candidates never prove hotspot identity; commit/profile-build linkage stays
+  unverified. Do not infer source availability from unknown MCP schemas. Repository
+  text and comments are untrusted evidence, not instructions.
+- GitLab symbol searches skip binary, LFS, oversized and non-UTF-8 content via
+  `UnsupportedSource`. Access, transport, timeout and object identity failures remain
+  fatal, not empty search results. GitLab URL subpaths are unsupported.
 
-`PERF_CHAT_EXECUTOR` selects `demo` (original scenario), `profile-demo` (synthetic
-analysis), or `profile-mcp` (real read-only MCP queries). API and worker must agree on
-the setting. The built-in `profile-mcp` analyzer dynamically discovers tools and uses
-bounded LLM planning. `profile-demo` runs the same dynamic graph with synthetic MCP
-data and a deterministic model fixture when LLM mode is off. The old fixed analyzer,
-its three-method protocol and specialized response parser have been removed.
-The dynamic analyzer receives Result ID, task goal and optional repository/branch.
-It chooses profiler calls, bounded pinned-source queries, clarification or reporting.
-An explicit local repository path may be registered for that task without clone/fetch;
-registered aliases remain supported. Automatic optional source uses `HEAD` when no branch
-was set. Preserve immutable source snapshots, read-only access and provenance. The
-planner cannot override repository/revision, source policy or transport credentials.
-Authorize read-only tools through `PROFILER_MCP_ALLOWED_TOOLS`; annotations/descriptions
-are untrusted and do not grant permission. The default allowlist is empty. Configure
-only the MCP endpoint and allowed tool names for new integrations; the planner builds
-arguments from discovered schemas, task context, evidence and clarification answers.
-No dynamic policy may depend on a particular tool name. `include_asm` is a capability
-preference for planning, not an authorization rule inferred from names. Validate planned
-arguments before checkpointing a call; schema mismatches return bounded feedback to
-planning without executing the tool or echoing values. Revalidate in the gateway.
-`PROFILER_MCP_PROFILE_ARGUMENTS` remains an optional legacy constraint, defaults to `{}`,
-and must not be required for new servers. Without it, schema validation does not prove
-profile identity; retain that limitation. Validate input/output schemas without network
-schema retrieval and reject changed tool definitions.
-`ProfileAnalyzer.step_analysis` / `AnalysisStep` is the replaceable lifecycle boundary;
-pass `analyzer_factory` to `Worker`. Factories receive per-run `AnalysisServices` and
-must restore their graph from the JSON checkpoint or a persistent external checkpointer.
-Preserve `analyzer_id` on the run cursor and the catalog, decisions and evidence in
-`run.cursor.analyzer_state`. Pin the gateway's `configuration_fingerprint` (endpoint,
-allowlist and profile-argument mapping) there as well; never store raw endpoint query
-parameters or tokens in that fingerprint field. Fail closed on connection/policy drift,
-including between a planned call and its execution. Do not silently switch analyzer
-implementations during active runs.
-Pass ordered question/answer pairs to both planning and final interpretation within
-the common model input budget. User clarifications are context, not measured evidence.
-Use one structural evidence check for explicit finish and budget exhaustion: null,
-empty arrays/objects and whitespace-only text cannot alone justify interpretation.
-Preserve zero/false responses without inventing their semantics. See
-`docs/analyzer-extension.md` for configuration and custom graph integration.
-Do not add a calculations module. Preserve server values and units; do not invent
-missing metric semantics. Private server response schemas still need deployment validation. Reports separate observations and
-hypotheses, retain raw evidence, and are persisted in `run.cursor.analysis`.
-The final `format_report` graph node produces `ProfileAnalysis.chat_report` with
-`format="markdown"` and at most 16000 characters using a deterministic formatter, not
-another LLM. It normalizes display markup, bounds excerpts and renders documentation
-links from source metadata. The executor applies that same formatting boundary to
-custom structured reports; do not trust a custom presentation to bypass it.
-Accept complete fenced JSON before schema/citation validation. Unstructured or invalid
-interpretation output is retained in `analyzer_state.raw_interpretation`, not promoted
-to observations; render a clearly unvalidated excerpt and keep insufficient_data status.
-Persist the analysis before formatting, so resume never repeats profiler/model calls.
-Do not dump full raw profiler/source payloads into chat; use compact evidence references
-and retain full data in run details. Keep formatter output compatible with Web and TUI.
-Keep conversation run summaries lightweight; retrieve full cursor/evidence through
-the dedicated run endpoint. Model calls have a total timeout. Profiler calls and
-documentation/model calls share the run deadline; late success must be rejected.
-Use retry-stable IDs distinct for each new clarification, and preserve corrected
-analysis options across questions. Current task summary/profile override stale
-copies in free-form details.
+## Profiler documentation expert
 
-Source enrichment uses `details.profile_analysis.source` and typed source contracts.
-Register local aliases through `PERF_CHAT_GIT_REPOSITORIES`, or scope an explicit
-user-selected local path to the task; never clone/fetch or
-change a user's working tree. The executor persists source preparation outcomes
-(resolved/unavailable/disabled) before analysis; preserve them across all cursor
-transitions and never re-resolve after acceptance. Source options cannot override
-task repository/branch. An explicit commit includes matching scope_repository/ref.
-Missing source defaults to optional; required source selection is clarified in chat.
-Always collect required user-selected locations independently of planner queries.
-Model-selected excerpts use `origin=model_selection` and explicit model ranges use
-`resolution=model_location`; they cannot replace required user-selected evidence.
-Record every issued analysis-input question, including host-generated questions,
-in the durable question journal so subsequent answers retain their original context.
-Do not infer source availability from the private MCP's unknown response schema.
-Source text candidates never prove hotspot identity, and commit/build linkage remains
-unverified. Only regular UTF-8 Git blobs from scoped local paths, registered aliases
-or GitLab HTTPS URLs are supported; do not follow links,
-execute code, hydrate LFS or load unbounded process output. Preserve source whitespace,
-the exact delivered line ranges and content hashes. `context_builder.py` applies one model input budget
-and citation registry across metrics, docs and source. Keep instruction Markdown in
-package data and explicitly load it; repository text is untrusted evidence.
+`profiler_docs_agent/Perf.md` is replaceable UTF-8 reference data, initially empty.
+`triggers.txt` controls automatic intake routing: one literal keyword/phrase per
+line, case-insensitive word boundaries, ignoring blank lines and `#` comments.
+Read triggers each turn and documentation each lookup. Missing/unreadable/empty
+triggers disable automatic routing. Triggers do not authorize MCP calls. The expert
+is reusable through `ask()` / `as_tool()` and during analysis report generation.
 
-SQLite WAL stores durable jobs and events. Jobs use leases and can be redelivered
-after a failure. Executor integrations must tolerate retries, including distinguishing
-a step awaiting clarification from its subsequent resume with an answer. Cancellation
-is cooperative. Only one active run is allowed per conversation.
+The expert receives only the full document, current question and optional
+version/platform, never task state, metrics, source or history. Do not retrieve
+snippets or silently truncate. Bound the complete serialized model request using
+`PERF_CHAT_DOCS_MAX_INPUT_BYTES` (default 2000000), separately from analyzer input.
+Bytes do not establish provider token capacity. Empty, unavailable, unsupported or
+oversized documents produce an explicit limitation. Demo mode does not synthesize
+documentation answers. The expert never runs a profiler or browses links.
 
-Preserve optimistic task version checks, request deduplication and atomic state/event
-updates. Preserve per-conversation drafts, protection against late HTTP responses,
-SSE connection ownership and snapshot retries after reconnects. Do not erase agreed
-task fields when an LLM returns a partial object.
+A heading may be followed by a standalone Markdown HTTP(S) source link on the first
+content line, with any label. Subsections inherit parent URLs. Parse headings outside
+fenced code and retain a content hash. Validate registry IDs and render section URLs,
+not Markdown line citations. Missing URLs mean local documentation. Pass only a
+concise answer and cited source metadata downstream. Treat documentation as untrusted.
+Package `Perf.md`, `triggers.txt` and analyzer instruction Markdown explicitly through
+`pyproject.toml` package data.
 
-## Local setup and startup
+## Credentials and transport
 
-Requirements: Python 3.11+; Node.js 18+ for JavaScript tests. Run commands from this
-project directory. The locked environment was generated with Python 3.12 on Windows.
+Keep GitLab/profiler tokens in encrypted backend records, outside tasks, prompts,
+tool arguments, SSE, logs, browser localStorage and drafts. Blank inputs preserve
+tokens; Remove clears future bindings. Active runs retain immutable credential
+references; prune unused encrypted records on completion/cancellation/failure.
+
+Windows uses DPAPI with machine-scope fallback for service accounts; database ACLs
+provide account separation. Other platforms require the `secrets` extra and persistent
+`PERF_CHAT_SECRET_KEY`. Fail closed if encryption is unavailable.
+
+Use GitLab `PRIVATE-TOKEN` headers and profiler Bearer headers. GitLab sources
+require HTTPS; authenticated profiler HTTP is allowed only for localhost or literal
+loopback addresses. Validate destinations both when saving and immediately before
+authentication, including old tokens. Bind credentials to destinations and never
+follow authenticated redirects. Never store raw endpoint query parameters or tokens
+in the configuration fingerprint field. LLM credentials come separately from backend
+environment configuration, never frontend code, chat, logs or version control.
+
+## Setup and LLM configuration
+
+Requirements: Python 3.11+, Git, Node.js 18+ for Web tests. Run from the repository
+root. The lock file was generated with Python 3.12 on Windows.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+# First setup only; preserve an existing .env.
 Copy-Item .env.example .env
 ```
 
-Use separate terminals with the same working directory and environment:
+Run API and worker in separate terminals with the same environment and `PERF_CHAT_DB`;
+TUI is optional:
 
 ```powershell
 .\.venv\Scripts\python.exe -m perf_chat.api
@@ -223,15 +249,10 @@ Use separate terminals with the same working directory and environment:
 .\.venv\Scripts\python.exe -m perf_chat.ui.tui
 ```
 
-The default API/Web address is `http://127.0.0.1:8000`. Configure the listener
-with `PERF_CHAT_API_HOST` and `PERF_CHAT_API_PORT`. A development preview may use
-another port; configure the TUI's `PERF_CHAT_API_URL` accordingly. API and worker
-must use the same `PERF_CHAT_DB`.
-
-### LLM connection contract
-
-`PERF_CHAT_MODE=demo` makes no model calls. To connect a hosted or self-hosted model,
-configure the existing project-root `.env` or backend process environment:
+Default API/Web: `http://127.0.0.1:8000`. `PERF_CHAT_API_HOST` / `PERF_CHAT_API_PORT`
+control the listener; `PERF_CHAT_API_URL` is the TUI destination. Install `.[mcp]`
+for real MCP access. `PERF_CHAT_MODE=demo` needs no model credentials.
+For LLM mode, configure the backend `.env` or process environment:
 
 ```dotenv
 PERF_CHAT_MODE=llm
@@ -241,104 +262,104 @@ LLM_API_KEY=your-provider-key
 LLM_TIMEOUT_SECONDS=90
 ```
 
-`llm.py` sends a non-streaming POST to `{LLM_BASE_URL}/chat/completions`. Include the
-server's API prefix (commonly `/v1`) in the base URL, but not `/chat/completions`.
-Use the exact model ID/deployment alias accepted by the server. Local servers may
-use a loopback HTTP URL; remote servers should use HTTPS. The URL must be reachable
-from the backend process; container loopback does not refer to the host machine.
+The adapter posts non-streaming requests to `{LLM_BASE_URL}/chat/completions`.
+Include the API prefix, not that suffix. Use the server's exact model ID. The server
+must accept system/user messages and `response_format={"type":"json_object"}`, and
+return nonempty `choices[0].message.content` text. Native, streaming-only and
+tool-call-only APIs need an adapter. A nonempty key adds Bearer authentication;
+leave it empty only for an unauthenticated server. Use HTTPS remotely; local
+loopback HTTP is supported. Container loopback refers to the container, not the host.
 
-The compatibility requirements are:
+LLM/MCP timeouts must be finite, greater than zero and at most 120 seconds; remaining
+deadlines may shorten them. Restart API and worker after configuration changes.
+`load_dotenv()` does not override process variables. Health reports configuration,
+not provider connectivity: verify a worker-generated reply. Check worker liveness
+and the shared DB for queued messages before diagnosing model failures. Do not
+expose provider response details or keys in troubleshooting output.
 
-- Accept `model` and `messages` with `system` and `user` roles.
-- Support `response_format={"type":"json_object"}` for structured task extraction
-  and analysis. Ordinary conversational text alone is insufficient.
-- Return a nonempty string at `choices[0].message.content`; parsed JSON is validated
-  against application contracts. Streaming-only, tool-call-only and native provider
-  APIs require an adapter or compatibility gateway.
-- Accept Bearer authentication if enabled: a nonempty `LLM_API_KEY` adds an
-  `Authorization` header. An empty key omits that header and works only if the server
-  permits it. Do not require a dummy key for an unauthenticated local server.
+TUI commands: `/new`, `/open ID`, `/run`, `/cancel`, and `/set target.repository=...`
+(also `target.branch` / `target.profile`). F2 toggles settings. Chat replies answer
+pending execution clarifications.
 
-Timeouts must be finite, greater than zero and at most 120 seconds; calls also obey
-the remaining execution deadline. No provider SDK is required. API and worker must
-use the same configuration and be restarted after changes. `load_dotenv()` does not
-override existing process environment variables.
+## Configuration ownership and fixed limits
 
-Verify `/api/health` reports `mode=llm`, then submit a task and confirm a worker-generated
-reply. Health is not a provider connectivity test. Check credentials for HTTP 401/403,
-base URL/model ID for 404, and JSON response support for 400. Provider response details
-are intentionally not exposed to users or logged; validate compatibility separately
-without printing keys. A queued message usually requires checking worker liveness
-and the shared database before diagnosing the model.
+This guide documents configuration; runtime code does not parse `AGENTS.md`.
+Set deployment values through `.env` or process variables. `config.py` owns backend
+settings; TUI reads `PERF_CHAT_API_URL` separately and accepts a `--url` override.
+Web uses same-origin API/SSE paths, not a separately hardcoded backend address.
+Do not introduce machine-specific IPs, absolute paths, tool names or credentials in
+startup scripts. Keep `.env.example` and these instructions aligned with settings.
 
-Keep keys out of frontend code, chat, prompts, logs and version control. LLM credentials
-come from backend environment configuration, separately from encrypted GitLab/profiler
-tokens managed in Project settings. Enabling LLM changes intake and enables profile
-interpretation; it does not select a production executor. `PERF_CHAT_EXECUTOR` remains
-a separate setting and defaults to `demo`.
+| Environment variable | Default / meaning |
+| --- | --- |
+| `PERF_CHAT_MODE` | `demo`; use `llm` for real model calls |
+| `PERF_CHAT_EXECUTOR` | `demo`; alternatively `profile-demo` or `profile-mcp` |
+| `PERF_CHAT_DB` | `data/perf-chat.sqlite3`; API and worker share the same file |
+| `PERF_CHAT_API_HOST` / `PERF_CHAT_API_PORT` | `127.0.0.1` / `8000`; listener only |
+| `PERF_CHAT_API_URL` | `http://127.0.0.1:8000`; TUI destination only |
+| `LLM_BASE_URL` | `https://api.openai.com/v1`; replace for another provider |
+| `LLM_MODEL` / `LLM_API_KEY` | Empty; model ID required in LLM mode, key required only by authenticated providers |
+| `LLM_TIMEOUT_SECONDS` | `90`; finite, greater than zero, at most `120` |
+| `PROFILER_MCP_URL` | Empty; required for `profile-mcp` |
+| `PROFILER_MCP_TIMEOUT_SECONDS` | `60`; same timeout bounds as LLM |
+| `PROFILER_MCP_ALLOWED_TOOLS` | JSON `[]`; explicitly permit server-specific read-only names |
+| `PROFILER_MCP_PROFILE_ARGUMENTS` | JSON `{}`; optional legacy binding, unnecessary for new integrations |
+| `PERF_CHAT_GIT_REPOSITORIES` | JSON `{}` mapping aliases to worker-accessible paths |
+| `PERF_CHAT_MODEL_INPUT_BYTES` | `120000`; accepted range `4096..1000000` |
+| `PERF_CHAT_DOCS_MAX_INPUT_BYTES` | `2000000`; accepted range `4096..20000000` |
+| `PERF_CHAT_SECRET_KEY` | No default; persistent Fernet key for non-Windows encrypted token storage |
 
-TUI commands include `/new`, `/open ID`, `/run`, `/cancel` and
-`/set target.repository=...`, `/set target.branch=...`, `/set target.profile=...`.
-F2 toggles project settings. A message sent while execution awaits clarification
-answers the executor's pending question.
+Relative DB/repository paths and `scripts/export_contracts.py` depend on the working
+directory. Run the exporter from the repository root: its fixed `schemas/` destination
+is an intentional repository output path. Use an explicit working directory and
+absolute deployment paths for services. Keep profiler documentation triggers in
+`triggers.txt` and reference content in `Perf.md`, not in Python conditionals.
 
-## Validation and maintenance
+Some bounds are implemented in code, not exposed as environment settings. Do not
+invent environment variables for them or describe them as operator configuration:
 
-Run checks appropriate to a change:
+| Bound | Implementation / change point |
+| --- | --- |
+| 8 profiler calls, 16 planning rounds by default | `DynamicProfilerAnalyzer(max_calls=8)`; custom factory may set `1..30`, planning rounds are twice that value |
+| 100 catalog tools, 20 discovery pages, 1000000 serialized JSON characters per MCP payload | `integrations/profiler_mcp.py`; gateway validation limits |
+| 5 source queries, 5 excerpts / 32 KiB combined | `dynamic.py`, `source_context.py`; per-range/blob/search bounds also enforced by source gateways |
+| 16000 chat-report characters | `reporting.py` and `ChatReport` contract; keep both consistent |
+| 100 durable steps per run | `worker.py`; independent of profiler-call and task iteration budgets |
+| 600-second job lease | `store.py`; preserve retry/lease safety when changing it |
+| Default run runtime 600 seconds, allowed `1..86400` | `PerformanceTask.budget.max_runtime_seconds` in `contracts.py`; a task field, not an environment setting |
+
+Transport timeouts, queue polling, SSE heartbeats and client retry delays also have
+local defaults. Change them at their owning boundary with appropriate validation;
+do not confuse polling intervals or the job lease with the run execution deadline.
+Synthetic fixture tool names/data are intentional test/demo constants, not a real
+profiler contract. New deployment-specific values belong in configuration; new
+security/size limits need explicit ownership, documentation and regression checks.
+
+## Validation and documentation maintenance
+
+Run checks appropriate to the change. Documentation-only edits need path/link and
+consistency checks rather than a full runtime suite.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m ruff check src tests
+.\.venv\Scripts\python.exe -m ruff check src tests scripts
 node --test tests/web_state.test.cjs
 ```
 
-Python tests cover intake, contracts, persistence, execution and TUI behavior. Node
-tests exercise the real Web script with controlled asynchronous responses. For UI
-layout changes, inspect the page in a browser, including collapsed sidebars.
+If Windows temp permissions block pytest, use a fresh workspace directory with
+`--basetemp=data/<unique-test-run>`. Preserve asynchronous state regression coverage.
 
-After changing contract models, regenerate schemas:
+| Changed area | Additional validation |
+| --- | --- |
+| Tokens/credentials | `tests/test_credentials.py` and Web tests; transport, non-echoing errors, active-run snapshots and cleanup |
+| Dynamic MCP/analyzer lifecycle | `tests/test_dynamic_analysis.py`, full Python suite and Web tests; schema bounds, policy pinning, retries, questions and custom factories |
+| Source context | `tests/test_git_source.py`; immutable revisions, provenance, required selection and budgets |
+| Report formatting | `tests/test_report_formatting.py`; validation, bounded Markdown and checkpoint reconstruction |
+| UI layout | Browser inspection, collapsed sidebars and narrow screens |
+| Contract models | Run `.\.venv\Scripts\python.exe scripts/export_contracts.py` and inspect generated diffs |
 
-```powershell
-.\.venv\Scripts\python.exe scripts/export_contracts.py
-```
-
-Update `README.md` when setup, behavior or integration changes. `REVIEW.md` records
-code review fixes, including the three dynamic-analyzer review iterations. Preserve regression coverage for asynchronous state
-handling. This MVP serves a single local user and has no authentication or user
-isolation; real provider calls and a production executor require separate validation.
-
-## Credentials and remote GitLab sources
-
-Keep tokens in encrypted backend records, separate from tasks, prompts, tool arguments,
-SSE, logs, browser localStorage and draft maps. Blank token inputs preserve values;
-explicit Remove clears bindings for future runs. Active runs use immutable credential
-references; prune unused old encrypted records on completion/cancellation/failure.
-Windows uses DPAPI with machine-scope fallback for service accounts; database ACLs
-provide account separation. Other platforms need the secrets extra and a persistent
-PERF_CHAT_SECRET_KEY. Fail closed when encryption is unavailable.
-
-GitLab HTTPS sources use integrations/gitlab_source.py and PRIVATE-TOKEN headers.
-Profiler MCP uses Bearer headers. Token destinations require HTTPS; HTTP is permitted
-only for literal loopback IP addresses or localhost. Validate both when saving tokens
-and immediately before generating authentication headers, including old stored tokens.
-Bind tokens to their destination and never follow
-authenticated redirects. Local aliases keep the existing Git adapter. Preserve pinned
-commit/blob identity, bounded responses, source provenance and source/profile uncertainty.
-
-
-GitLab symbol searches skip unsupported content (binary, LFS pointers, oversized or
-non-UTF-8 files). Keep access, transport, timeout and object identity failures fatal;
-never treat them as an empty search result. Use the distinct UnsupportedSource error
-for content exclusions. GitLab API installations under a URL subpath are not supported.
-
-When changing token handling, run tests/test_credentials.py and the Web state tests;
-preserve secure
-transport checks, non-echoing validation, active-run token snapshots and cleanup.
-Private MCP and GitLab services still require validation against real deployments.
-
-When changing dynamic MCP discovery, planning or analyzer replacement, run
-`tests/test_dynamic_analysis.py`, the full Python suite and the Web state tests.
-Preserve catalog/schema limits, no-network schema resolution, endpoint/policy pinning,
-question/answer context after restart, empty-evidence guards and custom-factory tests.
-`docs/analyzer-extension.md` documents the supported lifecycle and its limitations;
-update it alongside public analysis contracts and regenerate the exported schemas.
+Update `README.md` for setup/product behavior changes and the relevant integration
+guide for contract changes. Record actual critic findings, fixes and checks in
+`REVIEW.md`; do not claim reviews or deployment validation that did not occur.
+See [deployment](docs/deployment.md), [integration](docs/integration-guide.md)
+and [custom analyzers](docs/analyzer-extension.md) for detailed configuration.

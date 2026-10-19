@@ -61,7 +61,8 @@ PERF_CHAT_API_URL=http://127.0.0.1:8000
 PERF_CHAT_DB=data/perf-chat.sqlite3
 ```
 
-`API_HOST` and `API_PORT` configure the server listener. `API_URL` configures only
+`PERF_CHAT_API_HOST` and `PERF_CHAT_API_PORT` configure the server listener.
+`PERF_CHAT_API_URL` configures only
 the TUI destination; it does not change the listener. Restart processes after editing
 configuration. The Web client uses same-origin `/api` and SSE URLs.
 
@@ -87,14 +88,19 @@ access control outside the application before exposing it beyond a trusted local
 
 - LLM intake: set `PERF_CHAT_MODE=llm`, `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`.
 - Real profiler MCP: install `-e ".[mcp]"`, set `PERF_CHAT_EXECUTOR=profile-mcp` and
-  `PROFILER_MCP_URL` on both API and worker. Save the token through Web settings.
+  `PROFILER_MCP_URL` on both API and worker. Configure `PERF_CHAT_MODE=llm` and a
+  compatible model, then set `PROFILER_MCP_ALLOWED_TOOLS` to a JSON array of your
+  server's permitted read-only tool names. The default empty array permits no calls.
+  Arguments come from discovered schemas; no argument map is required. Save an
+  optional profiler token through Web settings. See [analyzer setup](analyzer-extension.md#configure-a-profiler).
 - Encrypted tokens on Linux/macOS: install `-e ".[secrets]"` and generate a key with
   `.venv/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
   Store it as `PERF_CHAT_SECRET_KEY` in the private `.env` or a secret manager for both
   processes. Generate it once; keep it across restarts. Do not commit it. Windows uses DPAPI;
   run API and worker under the same OS account.
-- Local source: register aliases in `PERF_CHAT_GIT_REPOSITORIES`, with paths accessible
-  to the worker. GitLab source uses HTTPS repository URLs and backend token storage.
+- Local source: register aliases in `PERF_CHAT_GIT_REPOSITORIES` or provide an explicit
+  local Git path accessible to the worker. An omitted branch defaults to pinned `HEAD`.
+  GitLab source uses HTTPS repository URLs and backend token storage.
 
 See [the integration guide](integration-guide.md) for contracts and detailed limits.
 Real MCP deployments and Linux/macOS runtime behavior require environment-specific validation.

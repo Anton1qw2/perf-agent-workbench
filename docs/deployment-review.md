@@ -1,6 +1,8 @@
 # Deployment review: two iterations
 
 Date: 2026-10-18. Scope: deployment by a new developer, with an independent critic.
+This is a historical review record; test counts describe that review, not the current
+suite. Use [the deployment guide](deployment.md) for current setup instructions.
 
 ## Iteration 1
 

@@ -102,7 +102,8 @@ before a call; changes require a new run. No output schema is required: unknown 
 or text is retained as evidence without invented fields, units or metric calculations.
 Image/audio-only tool results are not supported by the current text model adapter.
 
-Limits: 100 tools, 20 discovery pages, 1 MB decoded catalog/response, eight profiler
+Limits: 100 tools, 20 discovery pages, 1000000 characters of serialized JSON per
+catalog/response, eight profiler
 calls and sixteen planning rounds per analysis. Planning and interpretation use the
 shared model input budget. Calls share the run deadline and transport/model timeouts;
 late success is rejected. When the investigation budget is reached, existing evidence
@@ -149,8 +150,9 @@ The factory is trusted backend code and receives services for the immutable run:
 - `source`: bounded Git/GitLab gateway using immutable credential references.
 - `max_input_bytes`: model request budget.
 
-The synthetic demo gateway retains the legacy profiler methods; it does not pretend
-to be an arbitrary MCP server. A custom graph can inspect `services.profiler.demo`.
+The synthetic demo gateway implements the same discovery/call protocol with a fixed
+fixture catalog and synthetic responses; it has no legacy named profiler methods.
+A custom graph can inspect `services.profiler.demo`.
 A replacement MCP gateway used by the built-in analyzer must implement `MCPToolGateway`,
 including a stable `configuration_fingerprint` for its endpoint and execution policy.
 Use the MCP gateway's `call_tool` method for schema/policy enforcement and

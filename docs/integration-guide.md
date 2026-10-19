@@ -45,8 +45,9 @@ Web or the backend API to manage values. Never paste tokens into chat or reposit
 
 ## Git source context
 
-The profile analyzer can enrich metrics with source from a registered **local Git
-repository** or an HTTPS GitLab repository. Local reads need no network; GitLab
+The profile analyzer can enrich metrics with source from a registered local Git
+alias, an explicit user-selected local Git path, or an HTTPS GitLab repository.
+Local reads need no network; GitLab
 reads use its API. Neither changes the user's working tree. Repository files and comments are
 untrusted evidence, not instructions. The existing analyzer uses a Git gateway and
 packaged instructions; there is no additional LLM Git agent.
@@ -58,8 +59,10 @@ PERF_CHAT_GIT_REPOSITORIES={"my-service":"C:/repos/my-service"}
 PERF_CHAT_MODEL_INPUT_BYTES=120000
 ```
 
-Use `my-service` in Repository and the local branch name in Branch. Configure source
-selection through chat in LLM mode. Agreed options are stored in
+Use `my-service` or an explicit local path in Repository. Branch selects a local
+branch; leaving it empty uses a pinned `HEAD`. In LLM mode the planner can select
+bounded source ranges or symbol candidates itself. Configure additional source
+constraints through chat; agreed options are stored in
 `details.profile_analysis.source`, for example:
 
 ```json
@@ -79,14 +82,17 @@ details={"profile_analysis":{"source":{"policy":"optional","locations":[{"path":
 `optional` preserves metric analysis when source is unavailable. `required` asks for
 an explicit source range or selection when model interpretation cannot proceed;
 reply with a partial source-options object, or `{"policy":"off"}` to continue
-without source. With the model disabled, fragments are retained as evidence and
-marked `interpretation_disabled`; no claim of delivery to a model is made.
+without source. `profile-demo` supplies a deterministic model fixture even when
+LLM mode is off. For direct source collection with `model_enabled=False`, required
+source delivery is marked `interpretation_disabled`; no model delivery is claimed.
 
 Symbol search returns text candidates, even if only one hit exists. In required mode
 select an explicit path/range from the candidates. Current MCP response formats are
 unknown: no profiler source locations are guessed or automatically inferred. The
-MVP uses explicitly supplied locations/symbols. Add a format-specific adapter later
-if the server exposes reliable source hints.
+planner may select locations/symbols, but these are recorded as model selections,
+not user choices or verified hotspot mappings. Required user-selected ranges are
+collected independently and cannot be replaced by planner-selected excerpts.
+Add a format-specific adapter later if the server exposes reliable source hints.
 
 The worker validates result ID/options, resolves the source revision, persists a
 `resolved`, `unavailable` or `disabled` snapshot with a progress event, then analyzes
@@ -123,8 +129,9 @@ report = agent.analyze(AnalysisRequest(
 The CLI accepts `--source-json` with the same `SourceRequest` fields. A configured
 model enables interpretation; the demo gateway still produces synthetic metrics.
 
-Source preparation and collection share a five-second child budget per attempt,
-within the run deadline. Limits: five snippets, eighty lines each, 8 KiB per snippet,
+Source preparation has a five-second child budget. Each collection attempt deducts
+the recorded preparation time from that budget and reserves time for reporting;
+all operations also obey the run deadline. Limits: five snippets, eighty lines each, 8 KiB per snippet,
 32 KiB total, 256 KiB per blob, 1000 search paths, 8 MiB scanned text and twenty hits.
 Subprocess output is bounded while reading; type/size are checked before loading a
 blob. No symlink/gitlink traversal, LFS hydration, binary decoding or code execution.
@@ -185,20 +192,32 @@ provenance, timestamps and hashes. Private services still need deployment valida
 To run the graph without a server or model:
 
 ```powershell
+$env:PERF_CHAT_MODE = "demo"
+$env:PERF_CHAT_EXECUTOR = "profile-demo"
 python -m perf_chat.profiler_analysis_agent --demo --result-id demo-1 --goal "Inspect CPU hotspots" --asm
 ```
 
 This prints a JSON report with **synthetic evidence** using the same dynamic graph
-and a deterministic model fixture. All observations are explicitly synthetic. To enable interpretation, configure `PERF_CHAT_MODE=llm`
-and the existing model settings. To use the real MCP server:
+and a deterministic model fixture. All observations are explicitly synthetic. To use
+real LLM planning and interpretation, configure `PERF_CHAT_MODE=llm` and the existing
+model settings. To use the real MCP server:
 
 ```powershell
 python -m pip install -e ".[mcp]"
 # Configure in .env for both API and worker:
 # PERF_CHAT_EXECUTOR=profile-mcp
 # PROFILER_MCP_URL=https://your-server/mcp
+# PERF_CHAT_MODE=llm
+# LLM_BASE_URL=https://inference.example.com/v1
+# LLM_MODEL=your-served-model-id
+# LLM_API_KEY=your-provider-key
+# PROFILER_MCP_ALLOWED_TOOLS=["your_read_only_tool"]
 # PROFILER_MCP_TIMEOUT_SECONDS=60
 ```
+
+The standalone CLI does not read saved Web token bindings and currently uses the
+local Git source gateway. Use the worker/Web integration for encrypted profiler
+tokens and GitLab source, or inject configured gateways through the Python API.
 
 `PERF_CHAT_EXECUTOR=profile-demo` enables synthetic analysis through the existing Run
 button. `demo` keeps the original executor scenario. API and worker must use the same
@@ -223,6 +242,10 @@ The standalone Python API and tool are also available to external execution agen
 ```python
 from perf_chat.integrations.profiler_mcp import MCPProfilerGateway
 from perf_chat.profiler_analysis_agent import AnalysisRequest, AnalysisServices, create_builtin_analyzer
+from perf_chat.config import Settings
+from perf_chat.llm import ChatModel
+
+settings = Settings.from_env()
 
 agent = create_builtin_analyzer(AnalysisServices(
     profiler=MCPProfilerGateway("https://your-server/mcp", allowed_tools=["your_read_only_tool"]),
@@ -232,10 +255,12 @@ report = agent.analyze(AnalysisRequest(result_id="result-7", goal="Inspect CPU h
 tool = agent.as_tool()  # analyze_profile
 ```
 
-Import `ChatModel` and initialize `settings` with your backend LLM configuration. The adapter is synchronous;
+Load your backend LLM configuration before constructing the model. The adapter is synchronous;
 async callers should invoke it in a worker thread. Calls are read-only, timed out and
-bounded to 1 MB per decoded payload. Model interpretation is skipped above a 120 KB
-evidence budget; full data remains in the report. No automatic unbounded query loops
+bounded to a 1000000-character serialized JSON payload. The default 120000-byte model
+request budget includes instructions, schemas and context, not just evidence. Optional
+context can be omitted; essential evidence that cannot fit yields an explicit limitation.
+Full collected evidence remains in the report. No automatic unbounded query loops
 are used. The worker persists the full report in `run.cursor.analysis`, available via
 `GET /api/runs/{run_id}`. Chat shows excerpts and labels any display truncation.
 Conversation snapshots expose only run ID, status, clarification, result and progress;
@@ -372,7 +397,8 @@ Use separate terminals with the same `.env` and working directory:
 
 Web: <http://127.0.0.1:8000>. OpenAPI: <http://127.0.0.1:8000/docs>.
 The TUI opens the latest conversation; use `--conversation ID` to select one explicitly.
-Web and TUI share conversations. The API listens on loopback only. This MVP serves
+Web and TUI share conversations. The API defaults to loopback; its listener is
+configurable through `PERF_CHAT_API_HOST` and `PERF_CHAT_API_PORT`. This MVP serves
 one local user; authentication and user isolation are not implemented.
 
 ## Agent modes
@@ -438,7 +464,8 @@ in `schemas/` with `python scripts/export_contracts.py`.
 - `ClarificationRequest` / `ClarificationAnswer`: correlated through `request_id`.
 - `PerformanceResult`: status, measurements with evidence, correctness and artifacts.
 
-`target.branch` selects the branch; `target.profile` stores an opaque path or ID.
+`target.branch` selects the branch; `target.profile` stores an opaque result ID/reference
+and is never opened as a local file.
 `summary` holds the task description, `details` holds agreed parameters, and
 `open_questions` holds material unresolved questions. Launch requires either a repository or a profile,
 a nonempty summary and no open questions. A branch is needed only when resolving
