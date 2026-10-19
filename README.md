@@ -156,3 +156,24 @@ word boundaries; blank lines and lines starting with `#` are ignored. Both files
 are reread without restarting. An empty, missing or unreadable trigger file disables
 automatic chat lookups. These triggers do not invoke MCP tools or control the
 analyzer's documentation lookup during report generation.
+
+
+In LLM mode the documentation expert reads all of `Perf.md` for each question. Its
+context contains only that document, the question and optional version/platform.
+Other agents receive its concise answer and cited source metadata, not the document.
+Use a heading followed by a Markdown source link, for example:
+
+```markdown
+## CPU utilization
+[Any label url](https://docs.example.com/profiler/cpu-utilization)
+
+Your documentation text.
+```
+
+Subsections inherit the parent source unless they supply their own. Missing URLs
+are marked as local documentation. Replies cite section URLs, not Markdown lines.
+`PERF_CHAT_DOCS_MAX_INPUT_BYTES=2000000` limits the whole serialized documentation
+request separately from analysis context. An oversized request is rejected without
+truncation. This is a byte limit, not a token estimate: choose a model with enough
+context for the full document, instructions, question and answer. Demo mode reports
+that it cannot synthesize documentation answers. No index or embeddings are required.

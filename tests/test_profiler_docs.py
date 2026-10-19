@@ -1,3 +1,5 @@
+import json
+
 from perf_chat.contracts import PerformanceTask
 from perf_chat.orchestrator.agent import OrchestratorAgent
 from perf_chat.orchestrator.graph import build_intake_graph
@@ -9,9 +11,11 @@ class RecordingModel:
     def __init__(self):
         self.calls = []
 
-    def complete(self, system, payload):
+    def complete(self, system, payload, *, json_output=False):
+        assert json_output
         self.calls.append(payload)
-        return "Use documented collection [Perf.md:L1-L3]."
+        return json.dumps({"answer": "Use documented collection.", "supported": True,
+                           "source_ids": ["doc1"]})
 
 
 def test_empty_and_missing_knowledge_never_call_model(tmp_path):
@@ -27,33 +31,36 @@ def test_empty_and_missing_knowledge_never_call_model(tmp_path):
     assert model.calls == []
 
 
-def test_search_reloads_document_and_returns_sources(tmp_path):
+def test_full_document_reloads_and_returns_only_cited_source_metadata(tmp_path):
     path = tmp_path / "Perf.md"
     path.write_text("# Collection\nCollect hotspots.\nExport a report.", encoding="utf-8")
     model = RecordingModel()
     agent = ProfilerDocsAgent(model, path)
     result = agent.ask("Perf hotspots", version="2026", platform="Linux")
     assert result.status == "found"
-    assert result.sources[0].start_line == 1
-    assert result.sources[0].end_line == 3
+    assert result.sources[0].title == "Collection"
+    assert "local documentation" in result.answer
     assert result.sources[0].file == "Perf.md"
     assert model.calls[0]["version"] == "2026"
     assert model.calls[0]["platform"] == "Linux"
-    assert model.calls[0]["sources"][0]["text"] == path.read_text(encoding="utf-8")
+    assert model.calls[0]["document"] == path.read_bytes().decode("utf-8")
+    assert "text" not in result.sources[0].model_dump()
     path.write_text("# Other topic\nMemory bandwidth.", encoding="utf-8")
-    assert agent.ask("Perf hotspots").status == "not_found"
-    assert len(model.calls) == 1
+    assert agent.ask("Perf hotspots").status == "found"
+    assert model.calls[1]["document"] == path.read_bytes().decode("utf-8")
+    assert len(model.calls) == 2
 
 
-def test_tool_and_demo_excerpts(tmp_path):
+def test_tool_demo_reports_no_model_synthesis(tmp_path):
     path = tmp_path / "Perf.md"
     path.write_text("# Hotspots\nSample documentation only.", encoding="utf-8")
     result = ProfilerDocsAgent(knowledge_path=path).as_tool().invoke({
         "question": "Perf hotspots", "platform": "Windows",
     })
     assert result["status"] == "found"
-    assert "[Perf.md:L1-L2]" in result["answer"]
-    assert "compatibility is unverified" in result["answer"]
+    assert "Demo mode cannot answer" in result["answer"]
+    assert result["sources"] == []
+    assert "Sample documentation only" not in result["answer"]
 
 
 def test_graph_routes_only_current_perf_request(tmp_path):

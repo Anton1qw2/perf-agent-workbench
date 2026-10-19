@@ -278,12 +278,33 @@ and lines starting with `#` are ignored. The default keyword is `perf`, for exam
 An empty, missing or unreadable trigger file disables automatic chat lookups.
 These triggers do not invoke MCP tools or control documentation lookup during report
 generation.
-The expert searches bounded excerpts and returns source line ranges and a file hash.
-Empty, missing, unreadable or unmatched documentation produces an explicit limitation
-without calling a model. Demo mode shows matching excerpts; LLM mode synthesizes an
-answer from those excerpts. Retrieved text is reference data, not agent instructions.
-`found` means matching text was retrieved, not that the answer or compatibility was verified.
-The lookup uses lexical terms, not semantic search; use terms from the document.
+In LLM mode the expert receives the complete UTF-8 document, the current question and
+optional version/platform. It receives no conversation history, task, metrics or source
+code and has no execution/browser tools. Other agents receive only its concise answer
+and cited source metadata. There is no lexical retrieval or embedding index.
+
+The first content line after a heading may be a standalone Markdown link with any label,
+for example `[Manual](https://docs.example.com/profiler/cpu)`. That destination is the
+section source; subsections inherit it unless they define another. Links inside fenced
+code are not sources. Only HTTP(S) URLs without embedded credentials are accepted;
+sections without one are labeled as local documentation. The model selects source IDs
+from a registry, and the application renders section-title links. Unknown IDs, unregistered
+Markdown link targets and legacy line citations are rejected. Document hashes identify
+the snapshot; line numbers are not used for citations. Links are never fetched.
+
+`PERF_CHAT_DOCS_MAX_INPUT_BYTES` defaults to 2000000 and limits the complete serialized
+expert request, including instructions, document and source registry. Oversized input
+returns `too_large` without truncation or a model call. This byte bound does not count
+tokens or guarantee provider context capacity; reserve room for the model response and
+configure the model/budget accordingly. The model-generated answer text is bounded to
+16000 characters and 64 cited IDs; rendered source labels and URLs are appended separately. Its timeout shares the run deadline. The analyzer retains its separate
+model-input budget for metrics, the expert answer and source context.
+
+Empty, missing or unreadable files produce explicit limitations without model calls.
+If the complete document does not answer a question, the expert returns `not_found`.
+Demo mode reports that synthesis is unavailable and does not echo the document.
+`found` does not prove factual correctness or platform compatibility. Documentation is
+untrusted reference data, not agent instructions.
 
 External execution agents can reuse it directly or as a LangChain/LangGraph tool:
 

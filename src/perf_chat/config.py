@@ -21,6 +21,7 @@ class Settings:
     profiler_mcp_url: str = ""
     profiler_mcp_timeout: float = 60
     git_repositories: dict[str, str] = field(default_factory=dict)
+    docs_max_input_bytes: int = 2_000_000
     model_input_bytes: int = 120_000
     profiler_allowed_tools: list[str] = field(default_factory=lambda: [
         "get_list_metrics", "get_hotspots", "get_asm",
@@ -51,6 +52,8 @@ class Settings:
             )
         if not 4096 <= self.model_input_bytes <= 1_000_000:
             raise ValueError("PERF_CHAT_MODEL_INPUT_BYTES must be between 4096 and 1000000")
+        if not 4096 <= self.docs_max_input_bytes <= 20_000_000:
+            raise ValueError("PERF_CHAT_DOCS_MAX_INPUT_BYTES must be between 4096 and 20000000")
         for name, timeout in [
             ("LLM_TIMEOUT_SECONDS", self.timeout),
             ("PROFILER_MCP_TIMEOUT_SECONDS", self.profiler_mcp_timeout),
@@ -74,6 +77,7 @@ class Settings:
             profiler_mcp_url=os.getenv("PROFILER_MCP_URL", ""),
             profiler_mcp_timeout=float(os.getenv("PROFILER_MCP_TIMEOUT_SECONDS", "60")),
             git_repositories=json.loads(os.getenv("PERF_CHAT_GIT_REPOSITORIES", "{}")),
+            docs_max_input_bytes=int(os.getenv("PERF_CHAT_DOCS_MAX_INPUT_BYTES", "2000000")),
             model_input_bytes=int(os.getenv("PERF_CHAT_MODEL_INPUT_BYTES", "120000")),
             profiler_allowed_tools=json.loads(os.getenv(
                 "PROFILER_MCP_ALLOWED_TOOLS", '["get_list_metrics","get_hotspots","get_asm"]',

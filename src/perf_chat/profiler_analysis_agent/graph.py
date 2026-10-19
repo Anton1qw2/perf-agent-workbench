@@ -136,7 +136,7 @@ def build_analysis_graph(agent):
         request = AnalysisRequest.model_validate(state["request"])
         try:
             check_deadline()
-            docs = agent.docs_agent.ask("Perf " + " ".join(state["selected"])).model_dump()
+            docs = agent.docs_agent.ask(" ".join(state["selected"])).model_dump()
             check_deadline()
         except Exception:
             docs = {

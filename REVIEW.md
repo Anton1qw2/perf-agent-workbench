@@ -122,3 +122,25 @@ A separate local demo API and worker were started for preview. Screenshots use
 controlled sample conversation data and do not represent profiler measurements.
 Work animation stops for clarification, terminal states and connection loss.
 Green indicates completed execution, never a verified performance improvement.
+
+
+## Full-document documentation expert
+
+Date: 2026-10-20. Scope: complete Markdown input, documentation-only context,
+section URL citations and the separate serialized request budget.
+
+An independent critic found no confirmed blocking or P1/P2 defects. The review
+covered request framing in the byte budget, shared execution deadlines, source ID
+and URL validation, concise downstream metadata, analyzer/orchestrator compatibility
+and the existing locked Markdown dependency. A one-off smoke check verified arbitrary
+source link labels, inherited subsection sources, fenced-code exclusion and payload
+isolation. Source labels and URLs are appended after the model answer's 16000-character
+bound; the integration guide now states that distinction explicitly.
+
+Validation: **152 Python tests passed**, **25 Web state tests passed**, Ruff and
+`git diff --check` passed. The package was previously built successfully. New tests
+for the full-document feature were removed at the user's request; the six existing
+documentation/trigger tests were retained and adapted. Real provider context capacity
+still requires deployment validation: byte limits do not count tokens or reserve a
+provider-specific output allowance. The expert receives the full document or an
+explicit limitation, never a silently truncated excerpt.

@@ -26,7 +26,7 @@ src/perf_chat/
     agent.py             Structured task extraction and updates
   profiler_docs_agent/
     agent.py             Profiler documentation expert and ask_perf_docs tool
-    retrieval.py         Bounded lexical Markdown search with source line ranges
+    retrieval.py         Full Markdown snapshot and section source registry
     Perf.md             Initially empty UTF-8 knowledge base, packaged with the module
   profiler_analysis_agent/  LangGraph metric analysis, contracts, validation and executor bridge
   integrations/
@@ -57,9 +57,20 @@ UTF-8 file each turn, ignoring blank/comment lines and matching case-insensitive
 boundaries. Missing, unreadable or empty configuration disables automatic chat routing.
 Package the trigger file alongside the replaceable `Perf.md` reference document.
 The expert is also reusable by execution agents through `ask()` or `as_tool()`.
-Keep documentation as reference data and cite source lines. Empty or unmatched knowledge
-must produce an explicit limitation, never fabricated instructions. The expert does not
-run a profiler or establish measured results. Documentation edits are read on each lookup.
+The expert receives the full UTF-8 document, the current question and optional version/
+platform only, never task state, metrics, repository code or conversation history.
+Do not retrieve snippets or silently truncate the document. Bound the complete serialized
+model request using `PERF_CHAT_DOCS_MAX_INPUT_BYTES` (default 2000000); this byte budget
+is separate from the analyzer context budget and does not establish provider token capacity.
+Keep documentation as untrusted reference data. The first standalone Markdown link on
+the first content line after a heading supplies the section's HTTP(S) source URL;
+subsections inherit parent URLs. Parse headings outside fenced code; retain a content hash.
+Use registry IDs and render validated section source links, never Markdown line citations.
+Missing source URLs are explicitly local documentation. Return only the concise expert
+answer and cited source metadata downstream, never the full document. Empty, unavailable,
+unsupported or oversized documentation must produce an explicit limitation. Demo mode
+reports no synthesis. The expert does not run a profiler, browse links or establish
+measured results. Documentation edits are read on each lookup.
 
 ## Product behavior
 

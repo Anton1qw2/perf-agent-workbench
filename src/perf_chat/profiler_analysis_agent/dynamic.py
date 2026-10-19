@@ -173,7 +173,7 @@ class DynamicProfilerAnalyzer(ProfileAnalysisAgent):
         if context.needs_selection:
             return self._output(request, state, question="Select an explicit source path and line range.",
                                 field="source", source_context=context)
-        docs = self.docs_agent.ask("Perf " + request.goal).model_dump()
+        docs = self.docs_agent.ask(request.goal).model_dump()
         interpretation, delivered, notes = self.interpret(
             request, [Evidence.model_validate(item) for item in state["evidence"]], docs, context,
             analysis_context={
