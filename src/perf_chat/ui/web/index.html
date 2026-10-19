@@ -33,7 +33,7 @@
     <div id="error" role="alert" hidden></div>
     <section id="messages" aria-live="polite"></section>
     <div id="question" class="markdown" hidden></div>
-    <div id="execution" class="muted" aria-live="polite"></div>
+    <div id="execution-panel" hidden><div id="execution" class="muted" aria-live="polite" tabindex="0" aria-label="Execution status"></div><button id="copy-execution" type="button" title="Copy full status text" aria-label="Copy full status text">Copy</button></div>
     <form id="composer"><label for="input">Message</label><div class="compose-row"><textarea id="input" rows="3" maxlength="20000" placeholder="Describe what you want to optimize…" required></textarea><button id="send" class="primary">Send <span aria-hidden="true">↗</span></button></div><small>Ctrl + Enter to send</small></form>
   </main>
   <aside class="details" id="context-panel" aria-label="Project settings">

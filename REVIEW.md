@@ -81,3 +81,23 @@ The wheel was built and inspected: it includes `triggers.txt`, its loader and
 invoke MCP tools or change the analyzer's report-time lookup. Keywords and phrases
 are literal; phrases preserve their internal whitespace. Knowledge remains a
 single replaceable UTF-8 Markdown document.
+
+
+## Compact execution status and clipboard: two iterations
+
+Date: 2026-10-19. Scope: the Web execution status panel and full-text copy button.
+
+1. **Iteration 1:** no confirmed defects. The critic reviewed fixed two-line height,
+   internal scrolling, hidden panel behavior, Clipboard API and HTTP fallback,
+   temporary element cleanup, focus restoration and asynchronous feedback guards.
+   Two additional regression scenarios were recommended and added: a status update
+   and a conversation switch while a clipboard operation is pending.
+2. **Iteration 2:** no confirmed defects. The critic verified the new pending-copy
+   tests, independently ran all **21 Web state tests**, and checked the final diff.
+   Copy retains the clicked text snapshot and does not mark new status text as copied.
+
+Validation: **21 Web state tests passed**, JavaScript syntax and `git diff --check`
+passed. A real headless Edge browser verified full-text copying over HTTP, a status
+height of two lines, internal overflow and a visible composer at desktop (1280px)
+and mobile (390px) widths. Collapsed and expanded sidebars were visually inspected.
+Clipboard permission failures produce an actionable error rather than a success label.

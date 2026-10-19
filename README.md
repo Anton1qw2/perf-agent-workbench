@@ -48,7 +48,8 @@ executor requests additional data during the run when needed; a profile analyzer
 may ask for a result ID after a repository-only launch. Reply in chat.
 
 Chat messages support Markdown in Web and TUI. Web also renders tables and fenced
-code blocks; raw HTML is escaped and remote images are not loaded.
+code blocks; raw HTML is escaped and remote images are not loaded. The Web execution
+status panel shows two lines with internal scrolling; Copy copies its full text.
 
 TUI commands include `/new`, `/open ID`, `/run`, `/cancel` and
 `/set target.repository=...`. F2 toggles project settings.

@@ -155,6 +155,8 @@ async function refresh() {
   $('question').hidden = run?.status !== 'waiting';
   renderMessageMarkdown($('question'), run?.clarification?.question || '');
   $('execution').textContent = run ? `${statusNames[run.status]} · ${run.result?.summary || run.progress || ''}` : '';
+  $('execution-panel').hidden = !$('execution').textContent;
+  $('copy-execution').textContent = 'Copy';
 }
 
 async function open(id) {
@@ -371,3 +373,42 @@ guard(async () => {
   if (!list.some(c => c.id === cid)) cid = list[0]?.id || (await api('/conversations', 'POST')).id;
   await open(cid);
 });
+
+
+async function copyStatusText(text) {
+  if (globalThis.navigator?.clipboard?.writeText) {
+    try {
+      await globalThis.navigator.clipboard.writeText(text);
+      return;
+    } catch { /* Fall back for HTTP or browsers denying Clipboard API access. */ }
+  }
+  const previousFocus = document.activeElement;
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.readOnly = true;
+  field.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+  document.body.append(field);
+  try {
+    field.select();
+    if (typeof document.execCommand !== 'function' || !document.execCommand('copy')) throw new Error('Clipboard access is unavailable. Select and copy the status text manually.');
+  } finally {
+    field.remove();
+    previousFocus?.focus({preventScroll: true});
+  }
+}
+
+$('copy-execution').onclick = async () => {
+  const text = $('execution').textContent;
+  if (!text) return;
+  const conversation = cid;
+  const button = $('copy-execution');
+  button.disabled = true;
+  try {
+    await copyStatusText(text);
+    if (cid === conversation && $('execution').textContent === text) button.textContent = 'Copied';
+  } catch (error) {
+    if (cid === conversation) showError(error);
+  } finally {
+    button.disabled = false;
+  }
+};

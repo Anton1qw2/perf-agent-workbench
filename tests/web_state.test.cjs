@@ -303,3 +303,78 @@ test('Run remains disabled without either analysis input', async () => {
   assert.equal(f.elements.run.disabled, true);
   assert.match(f.elements.run.title, /repository or profiler result ID/);
 });
+
+
+test('status panel hides when empty and copies all text through Clipboard API', async () => {
+  const f = await fixture();
+  assert.equal(f.elements['execution-panel'].hidden, true);
+  f.conversations.a.runs = [{id: 'run', status: 'running', progress: 'line 1\n' + 'long status '.repeat(1000)}];
+  await f.run('refresh()');
+  assert.equal(f.elements['execution-panel'].hidden, false);
+  f.run('globalThis.copied = []; globalThis.navigator = {clipboard: {writeText: async text => copied.push(text)}}');
+  await f.elements['copy-execution'].onclick();
+  assert.equal(f.run('copied[0]'), f.elements.execution.textContent);
+  assert.equal(f.elements['copy-execution'].textContent, 'Copied');
+  assert.equal(f.elements['copy-execution'].disabled, false);
+});
+
+test('status copy falls back after clipboard rejection and restores focus', async () => {
+  const f = await fixture();
+  f.elements.execution.textContent = 'Running · complete\nstatus <text>';
+  f.run(`
+    globalThis.navigator = {clipboard: {writeText: async () => {throw new Error('denied')}}};
+    globalThis.focusRestored = false;
+    document.activeElement = {focus: () => {focusRestored = true}};
+    globalThis.copyField = {style: {}, select() {}, remove() {this.removed = true}};
+    document.createElement = () => copyField;
+    document.execCommand = command => command === 'copy';
+  `);
+  await f.elements['copy-execution'].onclick();
+  assert.equal(f.run('copyField.value'), f.elements.execution.textContent);
+  assert.equal(f.run('copyField.removed'), true);
+  assert.equal(f.run('focusRestored'), true);
+  assert.equal(f.elements['copy-execution'].textContent, 'Copied');
+});
+
+test('status copy reports failed fallback without claiming success', async () => {
+  const f = await fixture();
+  f.elements.execution.textContent = 'Running · status';
+  f.run(`
+    document.createElement = () => ({style: {}, select() {}, remove() {}});
+    document.execCommand = () => false;
+  `);
+  await f.elements['copy-execution'].onclick();
+  assert.equal(f.elements.error.hidden, false);
+  assert.match(f.elements.error.textContent, /Clipboard access is unavailable/);
+  assert.notEqual(f.elements['copy-execution'].textContent, 'Copied');
+  assert.equal(f.elements['copy-execution'].disabled, false);
+});
+
+
+for (const change of ['status update', 'conversation switch']) {
+  test(`pending status copy does not mark new text as copied after ${change}`, async () => {
+    const f = await fixture();
+    f.conversations.a.runs = [{id: 'run-a', status: 'running', progress: 'original status'}];
+    f.conversations.b.runs = [{id: 'run-b', status: 'running', progress: 'other conversation'}];
+    await f.run('refresh()');
+    const original = f.elements.execution.textContent;
+    f.run(`globalThis.navigator = {clipboard: {writeText: text => {
+      globalThis.copiedSnapshot = text;
+      return new Promise(resolve => {globalThis.finishCopy = resolve});
+    }}}`);
+    const pending = f.elements['copy-execution'].onclick();
+    assert.equal(f.elements['copy-execution'].disabled, true);
+    if (change === 'status update') {
+      f.conversations.a.runs[0].progress = 'updated status';
+      await f.run('refresh()');
+    } else {
+      await f.run('open("b")');
+    }
+    f.run('finishCopy()');
+    await pending;
+    assert.equal(f.run('copiedSnapshot'), original);
+    assert.notEqual(f.elements.execution.textContent, original);
+    assert.equal(f.elements['copy-execution'].textContent, 'Copy');
+    assert.equal(f.elements['copy-execution'].disabled, false);
+  });
+}

@@ -65,7 +65,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 h1 { font-size: 20px; font-weight: 600; letter-spacing: -.4px; margin: 0; }
 h2 { font-size: 15px; margin: 0; }
 .badge { font-size: 12px; padding: 4px 8px; border-radius: 6px; background: #f3f6fb; color: var(--muted); white-space: nowrap; }
-#messages, #composer, #error, #question, #execution { width: 100%; max-width: 880px; margin-inline: auto; }
+#messages, #composer, #error, #question, #execution-panel { width: 100%; max-width: 880px; margin-inline: auto; }
 #messages { flex: 1; overflow: auto; padding: 28px 0; min-height: 100px; scrollbar-width: thin; }
 .message { margin: 0 0 28px; max-width: 100%; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
 .message .role { font-size: 12px; font-weight: 600; display: block; color: var(--muted); margin-bottom: 6px; }
@@ -105,8 +105,9 @@ body.context-open .details { background: white; }
 .token-help { margin: -6px 0 2px; }
 #save-context { width: 100%; margin-top: 12px; }
 #reload-context { width: 100%; margin-top: 10px; font-size: 12px; }
-#execution { margin-bottom: 12px; overflow-wrap: anywhere; }
-#execution:empty { display: none; }
+#execution-panel { display: flex; flex: 0 0 auto; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+#execution { flex: 1; min-width: 0; height: 3.2em; overflow-y: auto; overflow-wrap: anywhere; white-space: pre-wrap; scrollbar-width: thin; }
+#copy-execution { flex: 0 0 auto; min-height: 28px; padding: 4px 8px; font-size: 12px; }
 #error, #question { border-radius: 8px; padding: 12px; font-size: 12px; margin-top: 12px; line-height: 1.6; }
 #error { background: #fef2f2; color: #b42318; border-left: 3px solid #ef4444; }
 #question { background: #eff6ff; color: #1e40af; border-left: 3px solid var(--blue-600); margin-bottom: 12px; }
