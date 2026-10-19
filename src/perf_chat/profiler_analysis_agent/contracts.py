@@ -10,6 +10,8 @@ from .source_contracts import SourceContext, SourceRequest
 class AnalysisRequest(StrictModel):
     result_id: str = Field(min_length=1, max_length=4096)
     goal: str = Field(min_length=1, max_length=20000)
+    repository: str | None = Field(default=None, max_length=4096)
+    branch: str | None = Field(default=None, max_length=256)
     metrics: list[str] = Field(default_factory=list, max_length=6)
     include_asm: bool = False
     source: SourceRequest | None = None
@@ -35,6 +37,11 @@ class Interpretation(StrictModel):
     recommendations: list[str] = Field(default_factory=list)
 
 
+class ChatReport(StrictModel):
+    format: Literal["markdown"] = "markdown"
+    content: str = Field(min_length=1, max_length=16000)
+
+
 class ProfileAnalysis(StrictModel):
     schema_version: Literal["1"] = "1"
     status: Literal["completed", "needs_input", "insufficient_data"]
@@ -52,15 +59,8 @@ class ProfileAnalysis(StrictModel):
     clarification_field: Literal["metrics", "source", "analysis_input"] = "metrics"
     tool_catalog: list[dict[str, Any]] = Field(default_factory=list)
     analyzer: str = "legacy"
+    chat_report: ChatReport | None = None
 
-
-
-class ProfilerGateway(Protocol):
-    demo: bool
-
-    def get_list_metrics(self, result_id: str) -> Any: ...
-    def get_hotspots(self, result_id: str, metrics: list[str]) -> Any: ...
-    def get_asm(self, result_id: str, metrics: list[str]) -> Any: ...
 
 
 class MCPTool(StrictModel):
@@ -102,7 +102,7 @@ class ProfileAnalyzer(Protocol):
 class AnalysisServices:
     """Backend services provided to a trusted analyzer factory; no token values."""
 
-    profiler: ProfilerGateway | MCPToolGateway
+    profiler: MCPToolGateway
     analysis_id: str = ""
     model: Any = None
     source: Any = None

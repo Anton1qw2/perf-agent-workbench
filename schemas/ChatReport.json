@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "markdown",
+      "default": "markdown",
+      "title": "Format",
+      "type": "string"
+    },
+    "content": {
+      "maxLength": 16000,
+      "minLength": 1,
+      "title": "Content",
+      "type": "string"
+    }
+  },
+  "required": [
+    "content"
+  ],
+  "title": "ChatReport",
+  "type": "object"
+}

@@ -6,13 +6,15 @@
 server's paginated MCP tool catalog rather than requiring three specific methods.
 `PERF_CHAT_MODE=llm` enables dynamic selection and interpretation. Without a model it
 returns the catalog and an explicit limitation; it does not guess tools or arguments.
-`profile-demo` retains the original deterministic graph and synthetic profiler data.
-The existing `ProfileAnalysisAgent` class remains available for compatible legacy graphs.
+`profile-demo` uses the same dynamic graph with a synthetic MCP catalog/data and a
+deterministic model fixture when LLM mode is off. The fixed analyzer and its old
+three-method gateway protocol have been removed. Import `DynamicProfilerAnalyzer`
+or use `create_builtin_analyzer(services)`; old analyzer checkpoints require a new run.
 
 The built-in LangGraph executes one node per durable worker step:
 
 ```text
-discover -> plan -> call -> plan -> ... -> report
+discover -> plan -> call/source -> plan -> ... -> report -> format_report
               |                       |
               +-> clarification       +-> source/context and interpretation
 ```
@@ -22,6 +24,20 @@ find relevant measured costs, obtain useful detail and finish when evidence is s
 It selects only real tools and returns a validated JSON decision with a reason. There is
 no requirement that a profiler expose a metric catalog or use particular method names.
 The current profile reference remains an opaque `result_id` in the application contract.
+The request also carries optional `repository` and `branch` fields. The worker passes
+user-selected repository metadata even when source access is unavailable. Explicit local
+Git paths are scoped to the run without clone/fetch; symbolic aliases require backend
+registration. Optional local source defaults to a pinned `HEAD` when no branch was set.
+The planner sees the source snapshot outcome and may choose `action=source`, specifying
+bounded `locations` or `symbols`, only when it helps the investigation. Source reads use
+that immutable revision, with at most five queries and five combined excerpts/32 KiB.
+Collected code is delivered to later planning and interpretation under the common budget.
+It never proves correspondence with the profile build. Required-source user constraints
+and explicitly disabled source remain effective; required user-selected ranges are
+collected independently of planner selections. Planner-selected excerpts carry
+`origin=model_selection` (and `resolution=model_location` for explicit ranges).
+They cannot replace required user-selected ranges. The planner cannot change repository,
+revision, authentication or permissions.
 A profile executor still asks for this reference if the task starts with only Git.
 The current transport opens a new MCP session for discovery/calls. Tools must accept
 durable identifiers and independent read-only requests; session-local handles or
@@ -40,6 +56,11 @@ in-memory graph state surviving. Catalog metadata is not a source of measurement
 
 ## Configure a profiler
 
+When upgrading from the fixed default names, explicitly set your allowed tool list;
+an unset list now allows no calls. Existing explicit legacy bindings remain effective.
+Restart API and worker after configuration changes and start a new analysis when the
+pinned policy changes; existing runs must not silently adopt another policy.
+
 Install `.[mcp]`, configure the model and profiler endpoint, and explicitly authorize
 trusted read-only tool names on both API and worker. For a server exposing
 `inspect_session(session=...)`, for example:
@@ -49,21 +70,31 @@ PERF_CHAT_MODE=llm
 PERF_CHAT_EXECUTOR=profile-mcp
 PROFILER_MCP_URL=https://profiler.example.com/mcp
 PROFILER_MCP_ALLOWED_TOOLS=["inspect_session"]
-PROFILER_MCP_PROFILE_ARGUMENTS={"inspect_session":"session"}
 ```
 
-Use your actual server's names and argument keys. The default allowlist contains
-`get_list_metrics`, `get_hotspots` and `get_asm` for compatibility. Every discovered
-tool is recorded, but the planner receives only allowed tools. Server descriptions
+Use your actual server's tool names; do not configure argument names or values.
+The default allowlist is empty. Every discovered tool is recorded, but the planner
+receives only allowed tools. Server descriptions
 and read-only annotations do not grant permission. The allowlist is an operator trust
 decision, not proof that a server has no side effects. This iteration has no automatic
 approval or execution of unknown tools and no arbitrary module loading from chat.
 
-The profile-argument map binds a tool's top-level identifier to the current Result ID.
-Unmapped tools have no enforced profile-argument binding; explicitly review their
-scope and argument semantics before allowing them. Never use mappings to guess the
-meaning of undocumented metrics or identifiers. Tokens stay in backend transport
-headers and are not passed to the planner or checkpoint arguments.
+The planner builds arguments from each discovered input schema and tool description,
+the current task/profile reference, prior evidence and user clarifications. Nested objects,
+arrays, enums and tools with no arguments need no manual templates. Unknown mandatory
+values produce focused chat questions rather than invented values. Invalid arguments
+are rejected before a profiler call and returned to bounded planning as schema feedback;
+the gateway revalidates them before execution. No dynamic behavior is keyed to a
+particular tool name. `include_asm` is a planner preference by capability, not a backend
+permission check based on names. The allowlist remains the execution authorization.
+
+`PROFILER_MCP_PROFILE_ARGUMENTS` is still accepted as an optional legacy constraint.
+It defaults to `{}` and is not needed for new integrations. If explicitly set, it binds
+those top-level identifiers to the current Result ID and remains pinned with policy.
+Without it, JSON Schema validates structure, not profile identity; the planner must
+respect known identifiers and reports retain this limitation. Neither argument names
+nor undocumented metric/identifier semantics are guessed by host code. Tokens stay
+in backend transport headers, never planner context or checkpoint arguments.
 
 Input arguments and declared output schemas are validated with JSON Schema. Schema
 references cannot fetch remote documents. Definitions are checked again immediately
@@ -170,3 +201,23 @@ citation rejection, plain-text clarification, worker reconstruction and custom f
 A real local Streamable HTTP MCP fixture was exercised with a deterministic model stub.
 Private profiler deployments and real-model planning still require integration validation.
 Three review/fix iterations and the final checks are recorded in [REVIEW.md](../REVIEW.md).
+
+
+## Chat report boundary
+
+The durable `report` node validates interpretation and retains the original response
+in `analyzer_state.raw_interpretation`. Complete JSON code fences are accepted before
+schema and evidence-ID validation. Other free-form output or invalid citations cannot
+become validated findings: the report remains `insufficient_data` and stores no accepted
+observations from that response.
+
+A separate `format_report` node then creates `ProfileAnalysis.chat_report`, an optional
+backward-compatible `{format: "markdown", content: "..."}` field. Formatting is
+deterministic, makes no model calls and caps chat content at 16000 characters. It uses
+headings/lists, escaped text, fenced unvalidated excerpts and registered documentation
+links; unsupported HTML/images are reduced to text. Raw profiler responses and code are
+kept in the run endpoint, not dumped into the chat report. Display shortening is explicit.
+Custom structured reports pass through the same formatter in the executor, including
+reports that already supplied their own chat presentation. The formatter never repairs
+missing evidence by inventing facts or turns invalid responses into successful analysis.
+Reconstructing the worker at the formatting checkpoint must not repeat model/tool calls.

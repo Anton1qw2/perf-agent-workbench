@@ -13,6 +13,7 @@ from perf_chat.contracts import (
 from perf_chat.profiler_analysis_agent.contracts import (
     AnalysisRequest,
     AnalysisStep,
+    ChatReport,
     MCPTool,
     ProfileAnalysis,
 )
@@ -34,6 +35,7 @@ for model in [
     AnalysisRequest,
     ProfileAnalysis,
     AnalysisStep,
+    ChatReport,
     MCPTool,
     SourceRequest,
     SourceSnapshot,

@@ -348,7 +348,7 @@ def test_run_with_a_single_analysis_input(tmp_path, executor, target):
     state = response.json()
     assert state["missing_fields"] == []
     rid = start(client, cid, state["spec"]["spec_version"])
-    for _ in range(8):
+    for _ in range(16):
         worker.tick()
         run = worker.store.run(rid)
         if run["status"] == "waiting":

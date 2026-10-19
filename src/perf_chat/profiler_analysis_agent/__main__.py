@@ -15,8 +15,10 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze profiler data using MCP")
     parser.add_argument("--result-id", required=True)
     parser.add_argument("--goal", required=True)
+    parser.add_argument("--repository", help="Optional local Git path, registered alias or GitLab URL")
+    parser.add_argument("--branch", help="Optional source revision; local default is HEAD")
     parser.add_argument("--metrics", nargs="*", default=[])
-    parser.add_argument("--asm", action="store_true", help="Also request get_asm")
+    parser.add_argument("--asm", action="store_true", help="Also request assembly detail")
     parser.add_argument("--demo", action="store_true", help="Use explicitly synthetic data")
     parser.add_argument(
         "--source-json",
@@ -39,19 +41,21 @@ def main():
     agent = create_builtin_analyzer(AnalysisServices(
         profiler=gateway,
         model=ChatModel(settings) if settings.mode == "llm" else None,
-        source=GitSourceGateway(settings.git_repositories),
+        source=GitSourceGateway.for_repository(settings.git_repositories, args.repository),
         max_input_bytes=settings.model_input_bytes,
     ))
     report = agent.analyze(
         AnalysisRequest(
             result_id=args.result_id,
             goal=args.goal,
+            repository=args.repository, branch=args.branch,
             metrics=args.metrics,
             include_asm=args.asm,
             source=json.loads(args.source_json) if args.source_json else None,
         )
     )
-    print(report.model_dump_json(indent=2))
+    # ASCII JSON preserves all Unicode via escapes on Windows console/pipe encodings.
+    print(json.dumps(report.model_dump(mode="json"), indent=2, ensure_ascii=True))
     return 0 if report.status == "completed" else 1
 
 

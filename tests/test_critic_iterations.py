@@ -3,12 +3,13 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from analysis_helpers import analysis_agent, drain_worker
 
 from perf_chat.config import Settings
 from perf_chat.contracts import ClarificationAnswer, PerformanceTask
 from perf_chat.integrations.profiler_mcp import DemoProfilerGateway
 from perf_chat.llm import ChatModel
-from perf_chat.profiler_analysis_agent import AnalysisRequest, ProfileAnalysisAgent
+from perf_chat.profiler_analysis_agent import AnalysisRequest
 from perf_chat.store import Store
 from perf_chat.worker import Worker
 
@@ -41,7 +42,7 @@ def test_malformed_options_are_clarified_by_worker(tmp_path, options, awaiting):
     store.update_spec(cid, task, 1)
     rid = store.start_run(cid, 2, uuid4().hex)["id"]
     worker.tick()
-    worker.tick()
+    drain_worker(worker, rid)
     run = store.run(rid)
     if awaiting is None:
         assert run["status"] == "demo"
@@ -68,7 +69,7 @@ def test_overlong_result_id_answer_can_be_corrected(tmp_path):
     )
     rid = store.start_run(cid, 2, uuid4().hex)["id"]
     worker.tick()
-    worker.tick()
+    drain_worker(worker, rid)
     first = store.run(rid)["clarification"]["request_id"]
     store.resume(rid, ClarificationAnswer(request_id=first, answer="x" * 4097))
     worker.tick()
@@ -83,7 +84,7 @@ def test_overlong_result_id_answer_can_be_corrected(tmp_path):
         ),
     )
     worker.tick()
-    assert store.run(rid)["status"] == "demo"
+    assert drain_worker(worker, rid)["status"] == "demo"
 
 
 def test_llm_slow_stream_is_bounded_by_total_timeout(monkeypatch):
@@ -122,23 +123,25 @@ def test_timeouts_must_be_finite_positive_and_bounded(field, timeout):
         Settings(**{field: timeout})
 
 
-def test_catalog_response_is_retained_at_deadline(monkeypatch):
+def test_late_catalog_is_retained_but_cannot_complete_analysis(monkeypatch):
     import time
 
     now = [time.monotonic()]
     monkeypatch.setattr("perf_chat.runtime.time.monotonic", lambda: now[0])
 
     class SlowCatalog(DemoProfilerGateway):
-        def get_list_metrics(self, result_id):
+        def list_tools(self):
+            tools = super().list_tools()
             now[0] += 2
-            return ["cycles"]
+            return tools
 
-    report = ProfileAnalysisAgent(SlowCatalog()).analyze(
+    report = analysis_agent(SlowCatalog()).analyze(
         AnalysisRequest(result_id="id", goal="Inspect"),
         deadline=now[0] + 1,
     )
     assert report.status == "insufficient_data"
-    assert report.evidence[0].response == ["cycles"]
+    assert report.evidence == []
+    assert report.tool_catalog
 
 
 def test_conversation_snapshot_omits_raw_run_data(tmp_path):
@@ -157,7 +160,7 @@ def test_conversation_snapshot_omits_raw_run_data(tmp_path):
     rid = store.start_run(cid, 2, uuid4().hex)["id"]
     worker = Worker(settings)
     worker.tick()
-    worker.tick()
+    drain_worker(worker, rid)
     from fastapi.testclient import TestClient
 
     from perf_chat.api import create_app
@@ -167,7 +170,7 @@ def test_conversation_snapshot_omits_raw_run_data(tmp_path):
     assert set(snapshot["runs"][0]) == {"id", "status", "clarification", "result", "progress"}
     assert snapshot["runs"][0]["status"] == "demo"
     full = client.get(f"/api/runs/{rid}").json()
-    assert full["cursor"]["analysis"]["evidence"][1]["operation"] == "get_hotspots"
+    assert full["cursor"]["analysis"]["evidence"][0]["operation"] == "sample_measurements"
 
 
 def test_conversation_list_does_not_download_histories(tmp_path):

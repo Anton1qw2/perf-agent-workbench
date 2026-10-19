@@ -1,4 +1,4 @@
-"""Bounded MCP discovery and calls, plus the compatible legacy profiler methods."""
+"""Bounded MCP discovery/calls and a synthetic fixture with the same protocol."""
 
 import asyncio
 import hashlib
@@ -12,6 +12,7 @@ import httpx
 
 from ..profiler_analysis_agent.contracts import MCPTool
 from ..runtime import check_deadline, remaining_timeout
+from .mcp_schema import validate_schema
 
 
 def validate_token_destination(value):
@@ -47,20 +48,6 @@ def decode_tool_result(result):
     return bounded_payload(data)
 
 
-def validate_schema(value, schema):
-    """Validate server schemas without resolving references over the network."""
-    from jsonschema.validators import validator_for
-    from referencing import Registry
-    from referencing.exceptions import NoSuchResource
-
-    def reject(uri):
-        raise NoSuchResource(ref=uri)
-
-    validator = validator_for(schema)
-    validator.check_schema(schema)
-    validator(schema, registry=Registry(retrieve=reject)).validate(value)
-
-
 def tool_definition(tool):
     return MCPTool(
         name=tool.name, description=tool.description or "",
@@ -86,15 +73,9 @@ class MCPProfilerGateway:
         self.caller = caller
         self._token = token
         self.tool_lister = tool_lister
-        self.allowed_tools = frozenset(
-            allowed_tools if allowed_tools is not None
-            else ["get_list_metrics", "get_hotspots", "get_asm"]
-        )
-        self.profile_arguments = (
-            dict(profile_arguments) if profile_arguments is not None else {
-                "get_list_metrics": "result_id", "get_hotspots": "result_id", "get_asm": "result_id",
-            }
-        )
+        self.allowed_tools = frozenset(allowed_tools or [])
+        # Keep explicit old constraints compatible; never infer argument names here.
+        self.profile_arguments = dict(profile_arguments or {})
 
     @property
     def configuration_fingerprint(self):
@@ -140,18 +121,6 @@ class MCPProfilerGateway:
                     if not cursor:
                         break
                 raise ValueError(f"Required profiler MCP tool is unavailable: {name}")
-
-    def _call(self, name, arguments):
-        timeout = remaining_timeout(self.timeout)
-        if self.caller:
-            data = self.caller(name, arguments)
-            check_deadline()
-            return bounded_payload(data)
-
-        async def bounded():
-            return await asyncio.wait_for(self._invoke(name, arguments), timeout=timeout)
-
-        return asyncio.run(bounded())
 
     async def _discover(self):
         try:
@@ -226,36 +195,23 @@ class MCPProfilerGateway:
             validate_schema(data, tool.output_schema)
         return data
 
-    def get_list_metrics(self, result_id: str):
-        return self._call("get_list_metrics", {"result_id": result_id})
-
-    def get_hotspots(self, result_id: str, metrics: list[str]):
-        return self._call("get_hotspots", {"result_id": result_id, "metrics": metrics})
-
-    def get_asm(self, result_id: str, metrics: list[str]):
-        return self._call("get_asm", {"result_id": result_id, "metrics": metrics})
 
 
-class DemoProfilerGateway:
-    """Synthetic data only; never opens a profile or contacts a server."""
+class DemoProfilerGateway(MCPProfilerGateway):
+    """Synthetic MCP fixture; uses the same discovery/call contract as real servers."""
 
     demo = True
 
-    def get_list_metrics(self, result_id: str):
-        return ["cpu_samples"]
-
-    def get_hotspots(self, result_id: str, metrics: list[str]):
-        return {
-            "demo": True,
-            "rows": [
-                {
-                    "function": "demo_function",
-                    "metric": metrics[0],
-                    "value": 120,
-                    "unit": "samples",
-                },
-            ],
-        }
-
-    def get_asm(self, result_id: str, metrics: list[str]):
-        return {"demo": True, "text": "Synthetic assembly placeholder; no code was disassembled."}
+    def __init__(self):
+        catalog = [MCPTool(
+            name="sample_measurements", description="Read synthetic sample measurements.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        ).model_dump()]
+        super().__init__(
+            "demo://synthetic", allowed_tools=[item["name"] for item in catalog],
+            tool_lister=lambda: catalog,
+            caller=lambda name, arguments: {
+                "demo": True, "rows": [{"function": "demo_function", "metric": "cpu_samples",
+                                         "value": 120, "unit": "samples"}],
+            },
+        )

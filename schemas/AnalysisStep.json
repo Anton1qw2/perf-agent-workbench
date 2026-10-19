@@ -15,6 +15,32 @@
           "title": "Goal",
           "type": "string"
         },
+        "repository": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repository"
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Branch"
+        },
         "metrics": {
           "items": {
             "type": "string"
@@ -45,6 +71,28 @@
         "goal"
       ],
       "title": "AnalysisRequest",
+      "type": "object"
+    },
+    "ChatReport": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "markdown",
+          "default": "markdown",
+          "title": "Format",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "title": "ChatReport",
       "type": "object"
     },
     "Evidence": {
@@ -232,6 +280,17 @@
           "default": "legacy",
           "title": "Analyzer",
           "type": "string"
+        },
+        "chat_report": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChatReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -338,14 +397,18 @@
         "resolution": {
           "enum": [
             "provided_location",
+            "model_location",
             "text_candidate"
           ],
           "title": "Resolution",
           "type": "string"
         },
         "origin": {
-          "const": "user_selection",
           "default": "user_selection",
+          "enum": [
+            "user_selection",
+            "model_selection"
+          ],
           "title": "Origin",
           "type": "string"
         }

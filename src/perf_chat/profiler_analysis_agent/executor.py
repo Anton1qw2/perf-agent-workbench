@@ -5,38 +5,14 @@ import json
 from ..contracts import ClarificationRequest, ExecutionEvent, PerformanceResult
 from ..runtime import execution_deadline
 from .contracts import AnalysisRequest, AnalysisStep
+from .reporting import format_chat_report
 from .source_context import prepare_source
 from .source_contracts import SourceOptions, SourceRequest, SourceSnapshot
 
 
 def render_report(report):
-    lines = [
-        "Profile analysis" + (" (SYNTHETIC DEMO)" if report.demo else ""),
-        f"Result ID: {report.request.result_id}",
-        f"Status: {report.status}",
-    ]
-    for title, items in [("Observations", report.observations), ("Hypotheses", report.hypotheses)]:
-        lines.append("\n" + title)
-        lines.extend(f"- {item.text} [{', '.join(item.evidence_ids)}]" for item in items)
-    lines.extend("- " + item for item in report.recommendations)
-    lines.append("\nLimitations")
-    lines.extend("- " + item for item in report.limitations)
-    lines.append("\nEvidence excerpts (full responses are saved in the run cursor)")
-    for item in report.evidence:
-        text = json.dumps(item.response, ensure_ascii=False)
-        lines.append(f"[{item.id}] {item.operation}: " + text[:3000])
-        if len(text) > 3000:
-            lines.append("[Display excerpt truncated; full evidence retained.]")
-    if report.source_context and report.source_context.snapshot:
-        snapshot = report.source_context.snapshot
-        lines.append(
-            f"\nSource: {snapshot.status}; commit {snapshot.commit or 'unavailable'}; profile match unverified"
-        )
-        for item in report.source_context.evidence:
-            lines.append(
-                f"[{item.id}] {item.path}:{item.start_line}-{item.end_line} ({item.resolution})\n{item.text}"
-            )
-    return "\n".join(lines)
+    """The same deterministic formatter also supports older/custom structured reports."""
+    return format_chat_report(report).content
 
 
 class ProfileAnalysisExecutor:
@@ -70,6 +46,8 @@ class ProfileAnalysisExecutor:
         }
         options.update(saved)
         options["goal"] = task.summary
+        options["repository"] = task.target.repository
+        options["branch"] = task.target.branch
         options["result_id"] = cursor.get("result_id", task.target.profile or "")
         awaiting = cursor.get("awaiting")
 
@@ -122,6 +100,8 @@ class ProfileAnalysisExecutor:
             return ask("options", "Provide analysis options as a JSON object, or {} for defaults.")
         if not options.get("result_id"):
             return ask("result_id", "Provide the profiler result_id to analyze.")
+        if "source" not in options and task.target.repository:
+            options["source"] = {}
         source_limitation = None
         validating_source = False
         try:
@@ -129,7 +109,7 @@ class ProfileAnalysisExecutor:
             if options.get("source") is not None:
                 validating_source = True
                 source = SourceOptions.model_validate(options["source"])
-                if not task.target.repository or not task.target.branch:
+                if not task.target.repository:
                     if source.policy == "required":
                         return ask(
                             "source",
@@ -149,7 +129,7 @@ class ProfileAnalysisExecutor:
                         and source.commit
                         and (
                             source.scope_repository != task.target.repository
-                            or source.scope_ref != task.target.branch
+                            or source.scope_ref != (task.target.branch or "HEAD")
                         )
                     ):
                         return ask(
@@ -167,7 +147,7 @@ class ProfileAnalysisExecutor:
                         )
                     data["source"] = SourceRequest(
                         repository=task.target.repository or "",
-                        ref=task.target.branch or "",
+                        ref=task.target.branch or "HEAD",
                         **source.model_dump(),
                     ).model_dump()
                 validating_source = False
@@ -249,6 +229,11 @@ class ProfileAnalysisExecutor:
                     "clarification_attempt": cursor.get("clarification_attempt", 0),
                 },
             )
+        analyzer_state = saved_cursor.get("analyzer_state", {})
+        report.chat_report = format_chat_report(
+            report, unvalidated_output=analyzer_state.get("raw_interpretation")
+            if analyzer_state.get("unvalidated_interpretation") else None,
+        )
         return ExecutionEvent(
             type="result",
             result=PerformanceResult(
@@ -258,7 +243,7 @@ class ProfileAnalysisExecutor:
                 else "demo"
                 if report.demo
                 else "succeeded",
-                summary=render_report(report),
+                summary=report.chat_report.content,
                 limitations=report.limitations,
             ),
         ), {**saved_cursor, "stage": "done", "analysis": report.model_dump(), "awaiting": None}

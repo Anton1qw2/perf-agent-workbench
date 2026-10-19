@@ -1,4 +1,4 @@
-"""Bounded, read-only Git object access to backend-registered local repositories."""
+"""Bounded, read-only Git object access to explicitly scoped local repositories."""
 
 import hashlib
 import os
@@ -25,6 +25,20 @@ class GitSourceGateway:
         }
         self.git = shutil.which("git")
         self.timeout = timeout
+
+    @classmethod
+    def for_repository(cls, repositories, repository):
+        """Register an explicitly supplied local path for this task, without clone/fetch."""
+        bindings = dict(repositories)
+        if repository and repository not in bindings and "://" not in repository:
+            try:
+                candidate = Path(repository).expanduser()
+                # A symbolic alias must not accidentally select the current directory.
+                if candidate.is_absolute() or repository in {".", ".."} or "/" in repository or "\\" in repository:
+                    bindings[repository] = str(candidate.resolve())
+            except (OSError, ValueError, RuntimeError):
+                pass  # Unsupported optional paths remain unavailable rather than blocking analysis.
+        return cls(bindings)
 
     def _run(self, repository, args, *, limit=262_144):
         root = self.repositories.get(repository)
@@ -123,7 +137,7 @@ class GitSourceGateway:
         # Bare branch names always mean local branches, not arbitrary revision expressions.
         selector = (
             ref
-            if re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", ref) or ref.startswith("refs/")
+            if ref == "HEAD" or re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", ref) or ref.startswith("refs/")
             else "refs/heads/" + ref
         )
         commit = (

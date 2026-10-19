@@ -5,11 +5,12 @@ import subprocess
 import sys
 
 import pytest
+from analysis_helpers import PlanningModel, advance, analysis_agent, drain_worker
 
 from perf_chat.contracts import ClarificationAnswer, PerformanceTask
 from perf_chat.integrations.git_source import GitSourceGateway, SourceUnavailable
 from perf_chat.integrations.profiler_mcp import DemoProfilerGateway
-from perf_chat.profiler_analysis_agent import AnalysisRequest, ProfileAnalysisAgent
+from perf_chat.profiler_analysis_agent import AnalysisRequest
 from perf_chat.profiler_analysis_agent.context_builder import (
     ContextBudgetExceeded,
     PromptContextBuilder,
@@ -150,7 +151,7 @@ class SourceModel:
                     {
                         "text": "Selected code returns 1.",
                         "evidence_ids": source_ids
-                        or (["src_omitted"] if self.cite_omitted else ["e2"]),
+                        or (["src_omitted"] if self.cite_omitted else ["e1"]),
                     }
                 ]
             }
@@ -160,7 +161,7 @@ class SourceModel:
 def test_model_receives_source_and_unified_citations(repository):
     _, _, gateway = repository
     model = SourceModel()
-    report = ProfileAnalysisAgent(DemoProfilerGateway(), model, source_gateway=gateway).analyze(
+    report = analysis_agent(DemoProfilerGateway(), model, source_gateway=gateway).analyze(
         AnalysisRequest(result_id="id", goal="Inspect", source=source(policy="required")),
     )
     assert report.status == "completed"
@@ -180,9 +181,9 @@ def test_optional_source_failure_keeps_metrics_and_required_asks(repository):
         locations=[SourceLocation(path="missing.c")],
     )
     model = SourceModel()
-    agent = ProfileAnalysisAgent(DemoProfilerGateway(), model, source_gateway=gateway)
+    agent = analysis_agent(DemoProfilerGateway(), model, source_gateway=gateway)
     report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=missing))
-    assert report.status == "completed" and len(report.evidence) == 2
+    assert report.status == "completed" and len(report.evidence) == 1
     missing.policy = "required"
     report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=missing))
     assert report.status == "needs_input" and report.clarification_field == "source"
@@ -191,23 +192,23 @@ def test_optional_source_failure_keeps_metrics_and_required_asks(repository):
 def test_single_symbol_match_remains_candidate_and_demo_does_not_loop(repository):
     _, _, gateway = repository
     selection = SourceRequest(repository="repo", ref="main", symbols=["int hot"])
-    agent = ProfileAnalysisAgent(DemoProfilerGateway(), source_gateway=gateway)
+    agent = analysis_agent(DemoProfilerGateway(), source_gateway=gateway)
     report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=selection))
     assert report.source_context.evidence[0].resolution == "text_candidate"
     selection.policy = "required"
     report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=selection))
-    assert report.status == "completed"
-    assert report.source_context.required_delivery == "interpretation_disabled"
+    assert report.status == "needs_input"
+    assert report.clarification_field == "source"
 
 
-def test_source_snapshot_survives_metric_clarification_and_branch_move(repository):
+def test_source_snapshot_survives_analyzer_clarification_and_branch_move(repository):
     root, git, gateway = repository
 
-    class ManyMetrics(DemoProfilerGateway):
-        def get_list_metrics(self, result_id):
-            return [f"m{i}" for i in range(7)]
-
-    executor = ProfileAnalysisExecutor(ProfileAnalysisAgent(ManyMetrics(), source_gateway=gateway))
+    from perf_chat.profiler_analysis_agent import DynamicProfilerAnalyzer
+    from perf_chat.profiler_docs_agent import ProfilerDocsAgent
+    agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), PlanningModel(questions=["Which workload?"]),
+                                    docs_agent=ProfilerDocsAgent(), source_gateway=gateway)
+    executor = ProfileAnalysisExecutor(agent)
     task = PerformanceTask(
         summary="Inspect",
         target={"repository": "repo", "branch": "main", "profile": "id"},
@@ -224,15 +225,15 @@ def test_source_snapshot_survives_metric_clarification_and_branch_move(repositor
     (root / "hot.c").write_text("changed\n", encoding="utf-8")
     git("add", "hot.c")
     git("commit", "-m", "move")
-    event, cursor = executor.step("run", task, cursor)
+    event, cursor = advance(executor,"run", task, cursor)
     assert event.type == "clarification"
-    event, cursor = executor.step(
+    event, cursor = advance(executor,
         "run",
         task,
         cursor,
         ClarificationAnswer(
             request_id=event.clarification.request_id,
-            answer='["m1"]',
+            answer="Batch workload",
         ),
     )
     assert event.type == "result" and cursor["source_snapshot"]["commit"] == pinned
@@ -242,7 +243,7 @@ def test_source_snapshot_survives_metric_clarification_and_branch_move(repositor
 def test_unavailable_snapshot_is_not_re_resolved(repository):
     _, _, gateway = repository
     selection = source()
-    agent = ProfileAnalysisAgent(DemoProfilerGateway(), source_gateway=GitSourceGateway())
+    agent = analysis_agent(DemoProfilerGateway(), source_gateway=GitSourceGateway())
     snapshot = prepare_source(agent.source_gateway, selection)
     assert snapshot.status == "unavailable"
     agent.source_gateway = gateway
@@ -255,12 +256,12 @@ def test_unavailable_snapshot_is_not_re_resolved(repository):
 
 def test_budget_omits_optional_code_and_rejects_omitted_citation(repository):
     root, git, gateway = repository
-    (root / "hot.c").write_text("é" * 2000 + "\n", encoding="utf-8")
+    (root / "hot.c").write_text("é" * 3500 + "\n", encoding="utf-8")
     git("add", "hot.c")
     git("commit", "-m", "long utf8")
     model = SourceModel(cite_omitted=True)
-    agent = ProfileAnalysisAgent(
-        DemoProfilerGateway(), model, source_gateway=gateway, max_input_bytes=6500
+    agent = analysis_agent(
+        DemoProfilerGateway(), model, source_gateway=gateway, max_input_bytes=10000
     )
     report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=source()))
     assert model.payload is not None and model.payload["source_evidence"] == []
@@ -282,7 +283,7 @@ def test_explicit_commit_scope_must_match_and_old_reports_validate(repository):
 
 def test_required_source_can_be_selected_after_clarification(repository):
     _, _, gateway = repository
-    agent = ProfileAnalysisAgent(DemoProfilerGateway(), SourceModel(), source_gateway=gateway)
+    agent = analysis_agent(DemoProfilerGateway(), SourceModel(), source_gateway=gateway)
     executor = ProfileAnalysisExecutor(agent)
     task = PerformanceTask(
         summary="Inspect",
@@ -292,9 +293,9 @@ def test_required_source_can_be_selected_after_clarification(repository):
     _, cursor = executor.step("run", task, {})
     _, cursor = executor.step("run", task, cursor)
     pinned = cursor["source_snapshot"]["commit"]
-    event, cursor = executor.step("run", task, cursor)
+    event, cursor = advance(executor,"run", task, cursor)
     assert event.clarification.fields == ["source"]
-    event, cursor = executor.step(
+    event, cursor = advance(executor,
         "run",
         task,
         cursor,
@@ -310,7 +311,7 @@ def test_required_source_can_be_selected_after_clarification(repository):
 def test_missing_exact_commit_outcome_is_persisted_and_opt_out_works(repository):
     _, _, gateway = repository
     executor = ProfileAnalysisExecutor(
-        ProfileAnalysisAgent(DemoProfilerGateway(), SourceModel(), source_gateway=gateway)
+        analysis_agent(DemoProfilerGateway(), SourceModel(), source_gateway=gateway)
     )
     task = PerformanceTask(
         summary="Inspect",
@@ -329,9 +330,9 @@ def test_missing_exact_commit_outcome_is_persisted_and_opt_out_works(repository)
     _, cursor = executor.step("run", task, {})
     _, cursor = executor.step("run", task, cursor)
     assert cursor["source_snapshot"]["status"] == "unavailable"
-    event, cursor = executor.step("run", task, cursor)
+    event, cursor = advance(executor,"run", task, cursor)
     assert event.type == "clarification"
-    event, cursor = executor.step(
+    event, cursor = advance(executor,
         "run",
         task,
         cursor,
@@ -371,7 +372,7 @@ def test_worker_restart_retains_prepared_commit(repository, tmp_path):
     rid = store.start_run(cid, 2, "source-run")["id"]
     worker = Worker(settings)
     worker.tick()
-    worker.tick()
+    drain_worker(worker, rid)
     snapshot = store.run(rid)["cursor"]["source_snapshot"]
     (root / "hot.c").write_text("new branch version\n", encoding="utf-8")
     git("add", "hot.c")
@@ -385,12 +386,12 @@ def test_worker_restart_retains_prepared_commit(repository, tmp_path):
 
 def test_required_source_omission_requests_narrower_range(repository):
     root, git, gateway = repository
-    (root / "hot.c").write_text("é" * 2000 + "\n", encoding="utf-8")
+    (root / "hot.c").write_text("é" * 3500 + "\n", encoding="utf-8")
     git("add", "hot.c")
     git("commit", "-m", "large source range")
     model = SourceModel()
-    report = ProfileAnalysisAgent(
-        DemoProfilerGateway(), model, source_gateway=gateway, max_input_bytes=6500
+    report = analysis_agent(
+        DemoProfilerGateway(), model, source_gateway=gateway, max_input_bytes=10000
     ).analyze(
         AnalysisRequest(result_id="id", goal="Inspect", source=source(policy="required")),
     )
@@ -418,7 +419,108 @@ def test_provider_token_budget_and_mismatched_snapshot(repository):
     changed = source()
     changed.ref = "other"
     with pytest.raises(ValueError, match="snapshot does not match"):
-        ProfileAnalysisAgent(DemoProfilerGateway(), source_gateway=gateway).analyze(
+        analysis_agent(DemoProfilerGateway(), source_gateway=gateway).analyze(
             AnalysisRequest(result_id="id", goal="Inspect", source=changed),
             source_snapshot=snapshot,
         )
+
+
+def test_planner_selects_source_and_receives_pinned_code_before_interpretation(repository):
+    root, git, gateway = repository
+    from perf_chat.profiler_analysis_agent import DynamicProfilerAnalyzer
+    from perf_chat.profiler_docs_agent import ProfilerDocsAgent
+
+    class SourcePlanner(PlanningModel):
+        def __init__(self):
+            super().__init__(SourceModel())
+            self.selected = False
+            self.seen_source = False
+
+        def complete(self, system, payload, **kwargs):
+            if payload["schema"]["title"] == "ToolDecision" and payload["evidence"]:
+                assert payload["request"]["repository"] == "repo"
+                assert payload["source_snapshot"]["status"] == "resolved"
+                if not self.selected:
+                    self.selected = True
+                    (root / "hot.c").write_text("new branch content\n", encoding="utf-8")
+                    git("add", "hot.c")
+                    git("commit", "-m", "move after planning")
+                    return json.dumps({"action": "source", "reason": "Inspect user-selected file",
+                                       "locations": [{"path": "hot.c", "start_line": 1, "end_line": 3}]})
+                assert "return 1" in payload["source_evidence"][0]["text"]
+                assert "new branch content" not in payload["source_evidence"][0]["text"]
+                self.seen_source = True
+            return super().complete(system, payload, **kwargs)
+
+    model = SourcePlanner()
+    agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), model, docs_agent=ProfilerDocsAgent(),
+                                    source_gateway=gateway)
+    report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect hot.c lines 1-3",
+                                          repository="repo", branch="main"))
+    assert report.status == "completed"
+    assert model.seen_source
+    assert report.source_context.evidence[0].id in report.delivered_evidence_ids
+
+
+def test_explicit_repository_path_is_scoped_without_implicit_alias_resolution(repository):
+    root, _, _ = repository
+    gateway = GitSourceGateway.for_repository({}, str(root))
+    commit, tree = gateway.resolve_revision(str(root), "HEAD")
+    assert commit and tree
+    assert GitSourceGateway.for_repository({}, "unregistered-alias").repositories == {}
+
+
+def test_model_source_cannot_replace_required_user_location(repository):
+    _, _, gateway = repository
+    from perf_chat.profiler_analysis_agent import DynamicProfilerAnalyzer
+    from perf_chat.profiler_docs_agent import ProfilerDocsAgent
+
+    class OtherSourcePlanner(PlanningModel):
+        def __init__(self):
+            super().__init__(SourceModel())
+            self.selected = False
+
+        def complete(self, system, payload, **kwargs):
+            if payload["schema"]["title"] == "ToolDecision" and payload["evidence"] and not self.selected:
+                self.selected = True
+                return json.dumps({"action": "source", "reason": "Read another known file",
+                                   "locations": [{"path": "hot.c", "start_line": 1, "end_line": 3}]})
+            return super().complete(system, payload, **kwargs)
+
+    agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), OtherSourcePlanner(),
+                                    docs_agent=ProfilerDocsAgent(), source_gateway=gateway)
+    report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=SourceRequest(
+        repository="repo", ref="main", policy="required",
+        locations=[SourceLocation(path="missing-required.c", start_line=1, end_line=3)],
+    )))
+    assert report.status == "needs_input"
+    assert report.clarification_field == "source"
+    assert report.source_context.required_delivery != "delivered"
+    assert not any(item.path == "hot.c" for item in report.source_context.evidence)
+
+
+def test_model_selected_location_has_explicit_provenance(repository):
+    _, _, gateway = repository
+    from perf_chat.profiler_analysis_agent import DynamicProfilerAnalyzer
+    from perf_chat.profiler_docs_agent import ProfilerDocsAgent
+
+    class SourcePlanner(PlanningModel):
+        def __init__(self):
+            super().__init__(SourceModel())
+            self.selected = False
+
+        def complete(self, system, payload, **kwargs):
+            if payload["schema"]["title"] == "ToolDecision" and payload["evidence"] and not self.selected:
+                self.selected = True
+                return json.dumps({"action": "source", "reason": "Inspect known file",
+                                   "locations": [{"path": "hot.c", "start_line": 1, "end_line": 3}]})
+            return super().complete(system, payload, **kwargs)
+
+    agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), SourcePlanner(),
+                                    docs_agent=ProfilerDocsAgent(), source_gateway=gateway)
+    report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=SourceRequest(
+        repository="repo", ref="main",
+    )))
+    assert report.status == "completed"
+    assert report.source_context.evidence[0].origin == "model_selection"
+    assert report.source_context.evidence[0].resolution == "model_location"

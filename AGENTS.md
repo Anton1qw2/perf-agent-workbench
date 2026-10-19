@@ -30,8 +30,8 @@ src/perf_chat/
     Perf.md             Initially empty UTF-8 knowledge base, packaged with the module
   profiler_analysis_agent/  LangGraph metric analysis, contracts, validation and executor bridge
   integrations/
-    profiler_mcp.py      get_list_metrics/get_hotspots/get_asm MCP adapter and synthetic fixture
-    git_source.py        Bounded read-only access to registered local Git repositories
+    profiler_mcp.py      Generic MCP discovery/calls and synthetic MCP fixture
+    git_source.py        Bounded read-only access to scoped local Git repositories
     gitlab_source.py     Authenticated read-only GitLab API access to pinned objects
   contracts.py           Pydantic models and executor boundary
   api.py                 FastAPI REST endpoints, SSE and static assets
@@ -114,11 +114,27 @@ LLM mode changes the intake agents; it does not replace the demo executor.
 `PERF_CHAT_EXECUTOR` selects `demo` (original scenario), `profile-demo` (synthetic
 analysis), or `profile-mcp` (real read-only MCP queries). API and worker must agree on
 the setting. The built-in `profile-mcp` analyzer dynamically discovers tools and uses
-bounded LLM planning. `profile-demo` preserves the deterministic three-method graph.
+bounded LLM planning. `profile-demo` runs the same dynamic graph with synthetic MCP
+data and a deterministic model fixture when LLM mode is off. The old fixed analyzer,
+its three-method protocol and specialized response parser have been removed.
+The dynamic analyzer receives Result ID, task goal and optional repository/branch.
+It chooses profiler calls, bounded pinned-source queries, clarification or reporting.
+An explicit local repository path may be registered for that task without clone/fetch;
+registered aliases remain supported. Automatic optional source uses `HEAD` when no branch
+was set. Preserve immutable source snapshots, read-only access and provenance. The
+planner cannot override repository/revision, source policy or transport credentials.
 Authorize read-only tools through `PROFILER_MCP_ALLOWED_TOOLS`; annotations/descriptions
-are untrusted and do not grant permission. `PROFILER_MCP_PROFILE_ARGUMENTS` configures
-per-tool top-level argument binding to the current profile ID. Validate input/output
-schemas without network schema retrieval and reject changed tool definitions.
+are untrusted and do not grant permission. The default allowlist is empty. Configure
+only the MCP endpoint and allowed tool names for new integrations; the planner builds
+arguments from discovered schemas, task context, evidence and clarification answers.
+No dynamic policy may depend on a particular tool name. `include_asm` is a capability
+preference for planning, not an authorization rule inferred from names. Validate planned
+arguments before checkpointing a call; schema mismatches return bounded feedback to
+planning without executing the tool or echoing values. Revalidate in the gateway.
+`PROFILER_MCP_PROFILE_ARGUMENTS` remains an optional legacy constraint, defaults to `{}`,
+and must not be required for new servers. Without it, schema validation does not prove
+profile identity; retain that limitation. Validate input/output schemas without network
+schema retrieval and reject changed tool definitions.
 `ProfileAnalyzer.step_analysis` / `AnalysisStep` is the replaceable lifecycle boundary;
 pass `analyzer_factory` to `Worker`. Factories receive per-run `AnalysisServices` and
 must restore their graph from the JSON checkpoint or a persistent external checkpointer.
@@ -137,6 +153,17 @@ Preserve zero/false responses without inventing their semantics. See
 Do not add a calculations module. Preserve server values and units; do not invent
 missing metric semantics. Private server response schemas still need deployment validation. Reports separate observations and
 hypotheses, retain raw evidence, and are persisted in `run.cursor.analysis`.
+The final `format_report` graph node produces `ProfileAnalysis.chat_report` with
+`format="markdown"` and at most 16000 characters using a deterministic formatter, not
+another LLM. It normalizes display markup, bounds excerpts and renders documentation
+links from source metadata. The executor applies that same formatting boundary to
+custom structured reports; do not trust a custom presentation to bypass it.
+Accept complete fenced JSON before schema/citation validation. Unstructured or invalid
+interpretation output is retained in `analyzer_state.raw_interpretation`, not promoted
+to observations; render a clearly unvalidated excerpt and keep insufficient_data status.
+Persist the analysis before formatting, so resume never repeats profiler/model calls.
+Do not dump full raw profiler/source payloads into chat; use compact evidence references
+and retain full data in run details. Keep formatter output compatible with Web and TUI.
 Keep conversation run summaries lightweight; retrieve full cursor/evidence through
 the dedicated run endpoint. Model calls have a total timeout. Profiler calls and
 documentation/model calls share the run deadline; late success must be rejected.
@@ -145,15 +172,22 @@ analysis options across questions. Current task summary/profile override stale
 copies in free-form details.
 
 Source enrichment uses `details.profile_analysis.source` and typed source contracts.
-Register local aliases through `PERF_CHAT_GIT_REPOSITORIES`; never clone/fetch or
+Register local aliases through `PERF_CHAT_GIT_REPOSITORIES`, or scope an explicit
+user-selected local path to the task; never clone/fetch or
 change a user's working tree. The executor persists source preparation outcomes
 (resolved/unavailable/disabled) before analysis; preserve them across all cursor
 transitions and never re-resolve after acceptance. Source options cannot override
 task repository/branch. An explicit commit includes matching scope_repository/ref.
 Missing source defaults to optional; required source selection is clarified in chat.
+Always collect required user-selected locations independently of planner queries.
+Model-selected excerpts use `origin=model_selection` and explicit model ranges use
+`resolution=model_location`; they cannot replace required user-selected evidence.
+Record every issued analysis-input question, including host-generated questions,
+in the durable question journal so subsequent answers retain their original context.
 Do not infer source availability from the private MCP's unknown response schema.
 Source text candidates never prove hotspot identity, and commit/build linkage remains
-unverified. Only regular UTF-8 Git blobs from registered local aliases or GitLab HTTPS URLs are supported; do not follow links,
+unverified. Only regular UTF-8 Git blobs from scoped local paths, registered aliases
+or GitLab HTTPS URLs are supported; do not follow links,
 execute code, hydrate LFS or load unbounded process output. Preserve source whitespace,
 the exact delivered line ranges and content hashes. `context_builder.py` applies one model input budget
 and citation registry across metrics, docs and source. Keep instruction Markdown in

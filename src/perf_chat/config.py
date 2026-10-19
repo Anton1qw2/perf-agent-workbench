@@ -23,12 +23,9 @@ class Settings:
     git_repositories: dict[str, str] = field(default_factory=dict)
     docs_max_input_bytes: int = 2_000_000
     model_input_bytes: int = 120_000
-    profiler_allowed_tools: list[str] = field(default_factory=lambda: [
-        "get_list_metrics", "get_hotspots", "get_asm",
-    ])
-    profiler_profile_arguments: dict[str, str] = field(default_factory=lambda: {
-        "get_list_metrics": "result_id", "get_hotspots": "result_id", "get_asm": "result_id",
-    })
+    profiler_allowed_tools: list[str] = field(default_factory=list)
+    # Optional legacy constraint; new integrations need no argument mapping.
+    profiler_profile_arguments: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         if (not isinstance(self.profiler_allowed_tools, list)
@@ -80,11 +77,11 @@ class Settings:
             docs_max_input_bytes=int(os.getenv("PERF_CHAT_DOCS_MAX_INPUT_BYTES", "2000000")),
             model_input_bytes=int(os.getenv("PERF_CHAT_MODEL_INPUT_BYTES", "120000")),
             profiler_allowed_tools=json.loads(os.getenv(
-                "PROFILER_MCP_ALLOWED_TOOLS", '["get_list_metrics","get_hotspots","get_asm"]',
+                "PROFILER_MCP_ALLOWED_TOOLS", "[]",
             )),
             profiler_profile_arguments=json.loads(os.getenv(
                 "PROFILER_MCP_PROFILE_ARGUMENTS",
-                '{"get_list_metrics":"result_id","get_hotspots":"result_id","get_asm":"result_id"}',
+                "{}",
             )),
         )
         if value.mode not in {"demo", "llm"}:

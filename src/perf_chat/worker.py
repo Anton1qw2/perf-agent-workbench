@@ -57,9 +57,10 @@ class Worker:
                 profile_arguments=settings.profiler_profile_arguments,
             )
         )
-        source = RepositorySourceGateway(
-            GitSourceGateway(settings.git_repositories), repository=repository, token=git_token
-        )
+        local_source = GitSourceGateway.for_repository(settings.git_repositories, repository)
+        source = (local_source if settings.executor_mode == "profile-demo" else RepositorySourceGateway(
+            local_source, repository=repository, token=git_token,
+        ))
         return ProfileAnalysisExecutor(
             self.analyzer_factory(AnalysisServices(
                 profiler=gateway, model=self.model, source=source,

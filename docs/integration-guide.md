@@ -105,7 +105,7 @@ The standalone Python API supports source requests and explicit snapshot reuse:
 ```python
 from perf_chat.integrations.git_source import GitSourceGateway
 from perf_chat.integrations.profiler_mcp import DemoProfilerGateway
-from perf_chat.profiler_analysis_agent import AnalysisRequest, ProfileAnalysisAgent
+from perf_chat.profiler_analysis_agent import AnalysisRequest, AnalysisServices, create_builtin_analyzer
 from perf_chat.profiler_analysis_agent.source_contracts import SourceRequest, SourceLocation
 from perf_chat.profiler_analysis_agent.source_context import prepare_source
 
@@ -114,7 +114,7 @@ selection = SourceRequest(repository="my-service", ref="main", locations=[
     SourceLocation(path="src/compute.cpp", start_line=10, end_line=60),
 ])
 snapshot = prepare_source(git, selection)  # Persist this for durable standalone retries.
-agent = ProfileAnalysisAgent(DemoProfilerGateway(), source_gateway=git)
+agent = create_builtin_analyzer(AnalysisServices(profiler=DemoProfilerGateway(), source=git))
 report = agent.analyze(AnalysisRequest(
     result_id="demo-1", goal="Inspect CPU hotspots", source=selection,
 ), source_snapshot=snapshot)
@@ -144,54 +144,43 @@ endpoint. Existing reports without source fields remain valid.
 The design and four planning reviews are recorded in
 [Source context design](source-context-plan.md).
 
-## Profile analysis agent
+## Dynamic profile analyzer
 
-For the default dynamic `profile-mcp` analyzer and custom graph replacement, see
-[the analyzer extension guide](analyzer-extension.md). The fixed graph and three MCP
-methods below describe the compatible legacy API and synthetic demo, not a requirement
-on every MCP server. New real-MCP runs use dynamic discovery and backend tool policy.
-The dynamic checkpoint pins the endpoint and policy; configuration drift requires a
-new run. User clarification pairs are supplied to planning and final interpretation,
-and empty profiler responses alone cannot produce a completed interpretation.
-
-
-The `profiler_analysis_agent` package implements a separate LangGraph subgraph:
+There is one built-in implementation, `DynamicProfilerAnalyzer`, for real and synthetic
+profiler sessions. See [the analyzer extension guide](analyzer-extension.md). The former
+fixed graph and three-method protocol have been removed; no real tool name or response
+catalog format is prescribed by the application.
 
 ```mermaid
 flowchart TD
-    START --> metric_catalog
-    metric_catalog --> plan
-    plan -->|Metrics need clarification or discovery failed| report
-    plan -->|Selected metrics available| fetch
-    fetch -->|Data available| interpret
-    fetch -->|Tool failed or returned empty data| report
-    interpret --> report
-    report --> END
+    discover --> plan
+    plan -->|Permitted profiler query| call
+    plan -->|Read pinned repository evidence| source
+    plan -->|Missing context| clarification
+    clarification --> plan
+    call --> plan
+    source --> plan
+    plan -->|Usable evidence collected| report
+    report --> format_report
 ```
 
-The supported MCP tool contract consists of:
+Configure the MCP endpoint and explicitly permitted read-only functions. The analyzer
+receives the opaque Result ID, task goal and optional repository/revision metadata.
+Authentication tokens stay in transport headers. Tool names and argument shapes come
+from discovery; only allowed functions can execute. The planner chooses investigation
+order, forms arguments using schemas and known context, and asks focused questions for
+missing values. The host validates schemas, bounds work and pins endpoint/tool policy.
 
-```text
-get_list_metrics(result_id)
-get_hotspots(result_id, metrics)
-get_asm(result_id, metrics)
-```
-
-`get_asm` is opt-in (`include_asm=true`). There is no call-tree or quality-info
-operation and no metric calculation module. The agent interprets server-provided
-values, separates observations and hypotheses, and consults the Perf documentation
-expert. Missing documentation is recorded as a limitation. Evidence retains raw
-responses, tool arguments, retrieval timestamps and SHA-256 hashes.
-
-The private server is not accessible in this workspace. The adapter uses Streamable
-HTTP through the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk/tree/v1.26.0).
-The concrete response schema remains to be confirmed: metric discovery currently
-accepts a list of names, a list of objects with string `id`, or `{"metrics": [...]}`.
-Hotspot and assembly payloads are preserved as JSON or text without guessing fields
-or units. A different metric catalog needs an adjustment in `validation.metric_names`.
-No automatic parsing of undocumented table formats is performed. Custom transports,
-authentication and response normalization can be supplied through the gateway's
-`caller(name, arguments)` injection point.
+Repository access is optional, bounded and read-only. An explicit local Git path may
+be used directly; aliases remain registered through backend settings. Source reads
+use a frozen revision (local default `HEAD`) and preserve provenance. The planner may
+select file ranges or symbol candidates; source text does not verify profile/build
+linkage. There are no clone/fetch, code execution or arbitrary filesystem-read tools.
+Reports pass through a durable Markdown formatting node for Web/TUI. Chat contains
+bounded findings, limitations and evidence references; unvalidated model text is labeled
+as such and does not become accepted observations. Full output stays in run details.
+Reports separate observations/hypotheses and retain raw profiler evidence, source
+provenance, timestamps and hashes. Private services still need deployment validation.
 
 To run the graph without a server or model:
 
@@ -199,8 +188,8 @@ To run the graph without a server or model:
 python -m perf_chat.profiler_analysis_agent --demo --result-id demo-1 --goal "Inspect CPU hotspots" --asm
 ```
 
-This prints a JSON report with **synthetic evidence**. Without an LLM, no explanatory
-observations are invented. To enable interpretation, configure `PERF_CHAT_MODE=llm`
+This prints a JSON report with **synthetic evidence** using the same dynamic graph
+and a deterministic model fixture. All observations are explicitly synthetic. To enable interpretation, configure `PERF_CHAT_MODE=llm`
 and the existing model settings. To use the real MCP server:
 
 ```powershell
@@ -215,12 +204,13 @@ python -m pip install -e ".[mcp]"
 button. `demo` keeps the original executor scenario. API and worker must use the same
 configuration and be restarted after a change. In profile modes, enter the server's
 `result_id` in Profile, describe the task in chat, then Run. Repository and Branch
-are not required for profile-only analysis. If source settings are retained without
-both Repository and Branch, disabled source is ignored and optional source is skipped
-with an explicit limitation. Required source asks the user to configure a new run or
-disable source for the current immutable run. If Profile is empty, execution asks
-for a result ID. If metrics are unknown or more than six are available, execution
-asks the user to select names as a JSON array. The answer resumes the durable run.
+are not required for profile-only analysis. A supplied repository is optional context;
+local source defaults to a pinned HEAD when no branch was specified. Missing repository
+access remains an explicit limitation. Required source asks the user to configure a
+new run or disable source for the current immutable run. If Profile is empty, execution asks
+for a result ID. Any additional identifiers or context are requested by the planner
+in chat; there is no automatic mandatory metric-selection questionnaire. The answer
+resumes the durable run.
 
 Optional settings agreed in chat are stored in `task.details.profile_analysis`:
 
@@ -232,14 +222,17 @@ The standalone Python API and tool are also available to external execution agen
 
 ```python
 from perf_chat.integrations.profiler_mcp import MCPProfilerGateway
-from perf_chat.profiler_analysis_agent import AnalysisRequest, ProfileAnalysisAgent
+from perf_chat.profiler_analysis_agent import AnalysisRequest, AnalysisServices, create_builtin_analyzer
 
-agent = ProfileAnalysisAgent(MCPProfilerGateway("https://your-server/mcp"))
+agent = create_builtin_analyzer(AnalysisServices(
+    profiler=MCPProfilerGateway("https://your-server/mcp", allowed_tools=["your_read_only_tool"]),
+    model=ChatModel(settings),
+))
 report = agent.analyze(AnalysisRequest(result_id="result-7", goal="Inspect CPU hotspots"))
 tool = agent.as_tool()  # analyze_profile
 ```
 
-Pass `ChatModel(settings)` to enable model interpretation. The adapter is synchronous;
+Import `ChatModel` and initialize `settings` with your backend LLM configuration. The adapter is synchronous;
 async callers should invoke it in a worker thread. Calls are read-only, timed out and
 bounded to 1 MB per decoded payload. Model interpretation is skipped above a 120 KB
 evidence budget; full data remains in the report. No automatic unbounded query loops

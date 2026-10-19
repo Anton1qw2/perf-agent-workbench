@@ -1,18 +1,13 @@
-import json
 from importlib.resources import files
 
 from ..llm import ChatModel
 from ..profiler_docs_agent import ProfilerDocsAgent
-from ..runtime import execution_deadline
 from .context_builder import PromptContextBuilder
 from .contracts import (
-    AnalysisRequest,
-    AnalysisStep,
     Interpretation,
-    ProfileAnalysis,
-    ProfilerGateway,
+    MCPToolGateway,
 )
-from .source_context import prepare_source
+from .reporting import parse_analysis_json
 from .validation import validate_interpretation
 
 SYSTEM = """Analyze profiler output using only supplied evidence. Output JSON matching schema.
@@ -27,12 +22,12 @@ Synthetic demo data must always be described as synthetic. Reply in English.
 """
 
 
-class ProfileAnalysisAgent:
-    analyzer_id = "legacy-profile-v1"
+class EvidenceInterpreter:
+    """Shared evidence interpretation service; it does not execute an analysis graph."""
 
     def __init__(
         self,
-        gateway: ProfilerGateway,
+        gateway: MCPToolGateway,
         model: ChatModel | None = None,
         docs_agent: ProfilerDocsAgent | None = None,
         source_gateway=None,
@@ -52,7 +47,7 @@ class ProfileAnalysisAgent:
             .read_text(encoding="utf-8")
         )
 
-    def interpret(self, request, evidence, documentation, source_context=None, *, analysis_context=None):
+    def interpret(self, request, evidence, documentation, source_context=None, *, analysis_context=None, raw_output_sink=None):
         if self.model is None:
             return (
                 Interpretation(
@@ -78,58 +73,12 @@ class ProfileAnalysisAgent:
             required=bool(request.source and request.source.policy == "required"),
         )
         text = self.model.complete(self.system, context.payload, json_output=True)
-        result = Interpretation.model_validate(json.loads(text))
+        if raw_output_sink is not None:
+            raw_output_sink(text)
+        result = Interpretation.model_validate(parse_analysis_json(text))
         return (
             validate_interpretation(result, context.evidence_ids),
             context.evidence_ids,
             context.limitations,
         )
 
-    def analyze(
-        self,
-        request: AnalysisRequest,
-        *,
-        deadline: float | None = None,
-        source_snapshot=None,
-    ) -> ProfileAnalysis:
-        from .graph import build_analysis_graph
-
-        with execution_deadline(deadline):
-            if source_snapshot is None:
-                source_snapshot = prepare_source(self.source_gateway, request.source)
-            elif request.source is None or (
-                source_snapshot.repository != request.source.repository
-                or source_snapshot.requested_ref != request.source.ref
-                or (
-                    request.source.policy != "off"
-                    and source_snapshot.requested_commit != request.source.commit
-                )
-            ):
-                raise ValueError(
-                    "Source snapshot does not match the requested repository/ref/commit"
-                )
-            state = build_analysis_graph(self).invoke(
-                {
-                    "request": request.model_dump(),
-                    "source_context": {"snapshot": source_snapshot.model_dump()}
-                    if source_snapshot
-                    else {},
-                }
-            )
-        return ProfileAnalysis.model_validate(state["report"])
-
-    def step_analysis(self, request, *, checkpoint, answer=None, deadline=None, source_snapshot=None):
-        """Compatibility adapter for the original deterministic graph."""
-        return AnalysisStep(checkpoint=checkpoint, report=self.analyze(
-            request, deadline=deadline, source_snapshot=source_snapshot,
-        ))
-
-    def as_tool(self):
-        from langchain_core.tools import StructuredTool
-
-        return StructuredTool.from_function(
-            name="analyze_profile",
-            description="Analyze profiler metrics through MCP by result_id.",
-            args_schema=AnalysisRequest,
-            func=lambda **kwargs: self.analyze(AnalysisRequest(**kwargs)).model_dump(),
-        )

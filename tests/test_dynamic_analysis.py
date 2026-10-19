@@ -74,7 +74,7 @@ def test_dynamic_catalog_and_arbitrary_tool_names_with_evidence():
     assert report.evidence[0].operation == "inspect_session"
     assert report.tool_catalog[0]["name"] == "inspect_session"
     assert report.observations[0].evidence_ids == ["e1"]
-    assert report.analyzer == "dynamic-mcp-v1"
+    assert report.analyzer == "dynamic-mcp-v2"
     assert model.plans[1]["evidence"][0]["response"] == {"cycles": 17, "unit": "cycles"}
 
 
@@ -266,7 +266,7 @@ def test_real_worker_uses_builtin_dynamic_analyzer_after_restart(tmp_path, monke
             break
     assert run["status"] == "succeeded"
     assert len(question_ids) == 1 and len(calls) == 1
-    assert run["cursor"]["analysis"]["analyzer"] == "dynamic-mcp-v1"
+    assert run["cursor"]["analysis"]["analyzer"] == "dynamic-mcp-v2"
     assert len(run["cursor"]["analysis"]["evidence"]) == 1
 
 
@@ -335,13 +335,13 @@ def test_unknown_evidence_reference_is_rejected_after_dynamic_calls():
     assert not report.observations
 
 
-def test_default_dynamic_factory_is_selected_only_for_real_mcp():
+def test_default_dynamic_factory_is_selected_for_real_and_synthetic_mcp():
     from perf_chat.integrations.profiler_mcp import DemoProfilerGateway
     from perf_chat.profiler_analysis_agent import AnalysisServices, create_builtin_analyzer
 
     assert isinstance(create_builtin_analyzer(AnalysisServices(profiler=gateway([]))),
                       DynamicProfilerAnalyzer)
-    assert not isinstance(create_builtin_analyzer(AnalysisServices(profiler=DemoProfilerGateway())),
+    assert isinstance(create_builtin_analyzer(AnalysisServices(profiler=DemoProfilerGateway())),
                           DynamicProfilerAnalyzer)
 
 
@@ -473,3 +473,110 @@ def test_relative_clarification_answer_keeps_question_for_next_tool_selection():
     assert model.interpretations[-1]["analysis_context"] == {
         "clarifications": [{"question": question, "answer": "The second one"}],
     }
+
+
+
+def test_mcp_defaults_require_allowlist_but_no_profile_argument_map():
+    settings = Settings()
+    assert settings.profiler_allowed_tools == []
+    assert settings.profiler_profile_arguments == {}
+    g = MCPProfilerGateway("https://profiler.example/mcp")
+    assert g.allowed_tools == frozenset()
+    assert g.profile_arguments == {}
+
+
+def test_dynamic_builds_nested_arguments_from_discovered_schema_without_bindings():
+    calls = []
+    schema = {
+        "type": "object", "required": ["selection", "view"], "additionalProperties": False,
+        "properties": {
+            "selection": {"type": "object", "required": ["handle"],
+                          "properties": {"handle": {"type": "string"}},
+                          "additionalProperties": False},
+            "view": {"enum": ["cpu", "memory"]},
+        },
+    }
+    arguments = {"selection": {"handle": "r7"}, "view": "cpu"}
+    model = Model([
+        {"action": "call", "reason": "Inspect requested profile", "tool": "read_measurements",
+         "arguments": arguments},
+        {"action": "finish", "reason": "Enough evidence"},
+    ])
+    g = MCPProfilerGateway(
+        "https://profiler.example/mcp", allowed_tools=["read_measurements"],
+        tool_lister=lambda: [tool("read_measurements", schema)],
+        caller=lambda name, args: calls.append((name, args)) or {"cycles": 17},
+    )
+    report = DynamicProfilerAnalyzer(g, model).analyze(request())
+    assert report.status == "completed"
+    assert calls == [("read_measurements", arguments)]
+    assert g.profile_arguments == {}
+    assert model.plans[0]["tools"][0]["input_schema"] == schema
+
+
+def test_schema_argument_repair_happens_before_any_profiler_call():
+    calls = []
+    model = Model([
+        {"action": "call", "reason": "Read counters", "tool": "inspect_session",
+         "arguments": {"session": 7}},
+        {"action": "call", "reason": "Use the known opaque identifier", "tool": "inspect_session",
+         "arguments": {"session": "r7"}},
+        {"action": "finish", "reason": "Enough evidence"},
+    ])
+    g = gateway(calls, bindings={})
+    report = DynamicProfilerAnalyzer(g, model).analyze(request())
+    assert report.status == "completed"
+    assert calls == [("inspect_session", {"session": "r7"})]
+    feedback = model.plans[1]["argument_feedback"]
+    assert feedback["rule"] == "type" and feedback["path"] == ["session"]
+    assert "7" not in json.dumps(feedback)
+    assert model.plans[2]["argument_feedback"] is None
+
+
+def test_zero_argument_tool_has_no_implicit_profile_or_name_based_gate():
+    calls = []
+    # This server's read-only tool name alone does not identify its capability.
+    definition = tool("get_asm", {"type": "object", "properties": {},
+                                  "additionalProperties": False})
+    definition["description"] = "Read the global profiler service counters; no assembly output."
+    model = Model([
+        {"action": "call", "reason": "Inspect profiler service", "tool": "get_asm",
+         "arguments": {}},
+        {"action": "finish", "reason": "Enough evidence"},
+    ])
+    g = gateway(calls, [definition], allowed=["get_asm"], bindings={})
+    assert request().include_asm is False
+    report = DynamicProfilerAnalyzer(g, model).analyze(request())
+    assert report.status == "completed"
+    assert calls == [("get_asm", {})]
+
+
+def test_host_generated_source_question_retains_answer_pairing():
+    calls = []
+    model = Model([
+        {"action": "call", "reason": "Read counters", "tool": "inspect_session",
+         "arguments": {"session": "r7"}},
+        {"action": "source", "reason": "Need source", "locations": [{"path": "hot.c"}]},
+        {"action": "ask", "reason": "Need scope", "question": "Which workload?"},
+        {"action": "finish", "reason": "Enough evidence"},
+    ])
+    agent = DynamicProfilerAnalyzer(gateway(calls), model)
+    checkpoint = {}
+    questions = []
+    answers = ["Continue without source", "Batch"]
+    answer = None
+    for _ in range(20):
+        step = agent.step_analysis(request(), checkpoint=checkpoint, answer=answer)
+        checkpoint = step.checkpoint
+        answer = None
+        if step.report and step.report.status == "needs_input":
+            questions.append(step.report.open_questions[0])
+            answer = answers[len(questions) - 1]
+        elif step.report:
+            assert step.report.status == "completed"
+            break
+    else:
+        raise AssertionError("Analysis did not complete")
+    expected = [{"question": q, "answer": a} for q, a in zip(questions, answers, strict=True)]
+    assert model.plans[-1]["clarifications"] == expected
+    assert model.interpretations[-1]["analysis_context"]["clarifications"] == expected

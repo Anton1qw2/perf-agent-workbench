@@ -144,3 +144,74 @@ documentation/trigger tests were retained and adapted. Real provider context cap
 still requires deployment validation: byte limits do not count tokens or reserve a
 provider-specific output allowance. The expert receives the full document or an
 explicit limitation, never a silently truncated excerpt.
+
+
+## Single dynamic analyzer migration
+
+Date: 2026-10-20. Removed the fixed profiler graph, its analyzer class, the three-method
+profiler protocol, response-catalog parser and named gateway wrappers. The only built-in
+implementation is now `DynamicProfilerAnalyzer` v2. Synthetic mode supplies a fixture
+catalog/data/model to that same graph. Existing v1/legacy active runs must restart;
+saved report data remains readable. Custom analyzer factories remain supported.
+
+The planner receives discovered permitted MCP tools, an opaque Result ID and optional
+repository/branch metadata. Tokens remain transport-only. It can query the profiler,
+select bounded source ranges/symbols from a pinned revision, clarify or finish.
+Explicit local paths are scoped without clone/fetch; aliases remain explicit registrations.
+Source queries retain five combined excerpts/32 KiB under the common input budget.
+The host still enforces authorization, schemas, deadlines, immutable snapshots and
+citation checks; planner freedom does not permit arbitrary execution or filesystem access.
+
+Validation: **140 Python tests passed**, **25 Web state tests passed**, Ruff and the
+standalone synthetic CLI passed. Obsolete fixed-graph tests were replaced with dynamic
+lifecycle tests; token cleanup, clarification correlation, immutable source handling,
+source omission/citations and restart coverage were ported. A new source-planning
+scenario moves the branch during investigation and confirms the original code is delivered.
+The subsequent three-iteration independent review is recorded below. Real private
+MCP/model services remain deployment validation work.
+
+
+## Chat report formatting node
+
+Date: 2026-10-20. Added a durable `format_report` node after interpretation. Its
+`ChatReport` contract uses Markdown and at most 16000 characters. Formatting is
+deterministic and adds no LLM/tool calls; the executor applies the same boundary
+to custom structured reports. Full raw evidence remains in run details rather
+than being dumped into chat. Saved reports without `chat_report` remain readable.
+
+Complete fenced JSON is decoded before interpretation/citation validation. Invalid
+or free-form model responses are retained in the analyzer checkpoint and shown only
+as a bounded unvalidated excerpt with insufficient-data status, not accepted findings.
+Formatting removes unsupported markup, preserves source links from metadata, escapes
+untrusted text and makes display shortening explicit. Standalone JSON output escapes
+Unicode to remain valid through Windows console redirection.
+
+Validation: **145 Python tests passed**, **25 Web state tests passed**, Ruff and
+`git diff --check` passed. New checks cover fenced JSON, free-form HTML, invalid
+citations, output bounds, custom presentation normalization and worker reconstruction
+at the formatting checkpoint without repeating interpretation. The synthetic CLI
+produced a formatted report; the built wheel contains the new formatter and excludes
+the removed fixed-analyzer modules. The subsequent independent review is recorded below.
+
+## Three-iteration dynamic analyzer and report review
+
+Date: 2026-10-20. Scope: the complete migration and report-formatting change above.
+
+Iteration 1 identified two defects. Planner-selected source could replace required
+user-selected locations and inherit user-selection provenance. The report node now
+collects the original required locations independently, verifies their availability
+and prioritizes them before adding bounded model-selected context. Model selections
+carry separate origin/resolution values. Host-generated analysis-input questions also
+lacked a durable question entry, causing subsequent answers to lose or shift context.
+All issued analysis-input questions now enter the durable question journal.
+
+Iteration 2 confirmed both fixes and found no additional actionable defects. The
+critic independently ran 71 dynamic-analysis, report-formatting and source tests.
+Iteration 3 rechecked custom analyzer formatting, checkpoint recovery, MCP schema
+and configuration enforcement, token isolation, required source constraints and
+deadline handling; no additional actionable defects were found.
+
+Final validation: **148 Python tests passed**, **25 Web state tests passed**, Ruff
+and `git diff --check` passed. Exported contract schemas and integration guidance
+were updated. Real private MCP servers and model providers still require deployment
+validation; these local checks do not establish compatibility with their private schemas.

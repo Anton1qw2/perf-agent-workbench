@@ -62,8 +62,8 @@ class SourceEvidence(StrictModel):
     end_line: int
     text: str
     sha256: str
-    resolution: Literal["provided_location", "text_candidate"]
-    origin: Literal["user_selection"] = "user_selection"
+    resolution: Literal["provided_location", "model_location", "text_candidate"]
+    origin: Literal["user_selection", "model_selection"] = "user_selection"
 
 
 class SourceContext(StrictModel):

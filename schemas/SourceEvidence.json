@@ -40,14 +40,18 @@
     "resolution": {
       "enum": [
         "provided_location",
+        "model_location",
         "text_candidate"
       ],
       "title": "Resolution",
       "type": "string"
     },
     "origin": {
-      "const": "user_selection",
       "default": "user_selection",
+      "enum": [
+        "user_selection",
+        "model_selection"
+      ],
       "title": "Origin",
       "type": "string"
     }

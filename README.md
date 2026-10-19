@@ -107,10 +107,15 @@ and defaults to `demo`. Keep keys out of chat and version control.
 ## Replaceable profile analyzer
 
 In `profile-mcp` mode, the built-in analyzer discovers MCP tools dynamically and uses
-LLM planning within a bounded investigation workflow. Configure
-`PROFILER_MCP_ALLOWED_TOOLS` and `PROFILER_MCP_PROFILE_ARGUMENTS` for your server;
-discovery does not automatically authorize calls. Active runs pin the endpoint and
-tool policy; changing either requires a new run. `profile-demo` stays deterministic.
+LLM planning within a bounded investigation workflow. Configure `PROFILER_MCP_URL`
+and `PROFILER_MCP_ALLOWED_TOOLS` for your server. Arguments come from discovered MCP
+input schemas and task context; no argument map is required. Unknown essential values
+are clarified in chat. The default allowlist is empty; discovery does not authorize
+calls. Active runs pin the endpoint and tool policy; changing either requires a new run. `profile-demo` uses this same graph with synthetic MCP data and a model fixture.
+The planner chooses profiler calls, optional pinned source reads, clarification or
+completion. A final formatting node produces bounded Markdown for Web/TUI. Full raw
+evidence stays in run details. Unstructured or invalid model output is retained and
+shown only as an explicitly unvalidated excerpt, never accepted as a finding. Tokens remain transport-only. The old fixed analyzer has been removed.
 Replace the analyzer in code with `Worker(settings, analyzer_factory=your_factory)`.
 See [analyzer configuration and custom graphs](docs/analyzer-extension.md).
 

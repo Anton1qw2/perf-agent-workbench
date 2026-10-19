@@ -228,8 +228,8 @@ def test_cleared_tokens_survive_only_until_active_run_finishes(tmp_path):
     store = client.app.state.store
     assert store.run_token(store.run(rid), "profiler", settings.profiler_mcp_url)
     worker = Worker(settings)
-    worker.tick()
-    worker.tick()
+    from analysis_helpers import drain_worker
+    drain_worker(worker, rid)
     assert store.run(rid)["status"] == "demo"
     assert store.run_token(store.run(rid), "profiler", settings.profiler_mcp_url) == ""
 
@@ -267,7 +267,7 @@ def test_mcp_transport_receives_token_only_as_header(monkeypatch):
 
         async def list_tools(self, **kwargs):
             return SimpleNamespace(
-                tools=[SimpleNamespace(name="get_list_metrics")], nextCursor=None
+                tools=[SimpleNamespace(name="read_sample", description="Read profile", inputSchema={"type": "object"}, outputSchema=None)], nextCursor=None
             )
 
         async def call_tool(self, name, arguments):
@@ -284,8 +284,8 @@ def test_mcp_transport_receives_token_only_as_header(monkeypatch):
         ("mcp.client.streamable_http", transport_module),
     ]:
         monkeypatch.setitem(sys.modules, name, module)
-    gateway = MCPProfilerGateway("https://profiler.example/mcp", token="synthetic-mcp-token")
-    assert gateway.get_list_metrics("id") == {"metrics": ["cycles"]}
+    gateway = MCPProfilerGateway("https://profiler.example/mcp", token="synthetic-mcp-token", allowed_tools=["read_sample"])
+    assert gateway.call_tool(gateway.list_tools()[0], {"result_id": "id"}, result_id="id") == {"metrics": ["cycles"]}
 
 
 def test_profiler_token_requires_secure_destination(tmp_path):
