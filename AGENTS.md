@@ -67,6 +67,10 @@ run a profiler or establish measured results. Documentation edits are read on ea
   and agent prompts use English.
 - The main visual accent is blue. Preserve the current compact layout and shared
   message-composer frame with its Send button at the bottom right.
+- Web status badges use calm red for errors, green for completed runs and blue for
+  work in progress. Animate dots and the thin header bar only during active work;
+  clarification and reconnection are static. Respect reduced-motion preferences.
+  A snapshot response must not clear an SSE disconnect notice before reconnection.
 - Both sidebars collapse to narrow clickable rails. Their expansion states are
   remembered independently. On narrow screens, expanded panels behave as overlays.
 - Project settings group Repository (URL/alias, Branch, GitLab token) and Profiler

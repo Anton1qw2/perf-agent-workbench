@@ -378,3 +378,82 @@ for (const change of ['status update', 'conversation switch']) {
     assert.equal(f.elements['copy-execution'].disabled, false);
   });
 }
+
+
+test('activity follows execution states and stops for clarification and terminal states', async () => {
+  const f = await fixture();
+  for (const [status, tone, working] of [
+    ['queued', 'active', true], ['running', 'active', true], ['cancelling', 'active', true],
+    ['waiting', 'neutral', false], ['cancelled', 'neutral', false],
+    ['failed', 'error', false], ['succeeded', 'success', false], ['demo', 'success', false],
+  ]) {
+    f.conversations.a.runs = [{id: 'run', status}];
+    await f.run('refresh()');
+    assert.equal(f.elements.status.attributes['data-tone'], tone, status);
+    assert.equal(f.elements.status.attributes['data-working'], String(working), status);
+    assert.equal(f.elements['activity-bar'].hidden, !working, status);
+  }
+  f.conversations.a.busy = true;
+  await f.run('refresh()');
+  assert.equal(f.elements.status.textContent, 'Agent is replying…');
+  assert.equal(f.elements['activity-bar'].hidden, false);
+  f.conversations.a.busy = false;
+  f.conversations.a.last_error = {message: 'Intake failed'};
+  await f.run('refresh()');
+  assert.equal(f.elements.status.attributes['data-tone'], 'error');
+  assert.equal(f.elements['activity-bar'].hidden, true);
+});
+
+test('reconnection stops work animation and successful sync restores current activity', async () => {
+  const f = await fixture();
+  f.conversations.a.runs = [{id: 'run', status: 'running'}];
+  await f.run('refresh()');
+  const connection = f.connections.at(-1);
+  connection.onerror();
+  assert.equal(f.elements.status.textContent, 'Reconnecting…');
+  assert.equal(f.elements['activity-bar'].hidden, true);
+  await f.run('refresh()');
+  assert.equal(f.elements.status.textContent, 'Reconnecting…');
+  await connection.onopen();
+  assert.equal(f.elements.status.textContent, 'Running');
+  assert.equal(f.elements['activity-bar'].hidden, false);
+  await f.run('open("b")');
+  connection.onerror();
+  assert.equal(f.elements.status.textContent, 'Ready');
+});
+
+test('message submission animates immediately and stops if submission fails', async () => {
+  const f = await fixture(), pending = deferred();
+  f.intercept(request => request.method === 'POST' ? pending.promise : undefined);
+  f.elements.input.value = 'Analyze this profile';
+  f.submit('composer');
+  await settle();
+  assert.equal(f.elements.status.textContent, 'Sending…');
+  assert.equal(f.elements['activity-bar'].hidden, false);
+  pending.resolve(f.response({detail: 'Unavailable'}, 503));
+  await settle();
+  assert.equal(f.elements['activity-bar'].hidden, true);
+  assert.equal(f.elements.error.hidden, false);
+});
+
+
+test('snapshot finishing after SSE disconnect cannot restore work animation', async () => {
+  const f = await fixture(), pending = deferred();
+  f.conversations.a.busy = true;
+  await f.run('refresh()');
+  let blocked = false;
+  f.intercept(request => {
+    if (request.url === '/api/conversations/a' && !blocked) {blocked = true; return pending.promise;}
+  });
+  const connection = f.connections.at(-1);
+  const sync = connection.update();
+  await settle();
+  connection.onerror();
+  pending.resolve(f.response(f.conversations.a));
+  await sync;
+  assert.equal(f.elements.status.textContent, 'Reconnecting…');
+  assert.equal(f.elements['activity-bar'].hidden, true);
+  await connection.onopen();
+  assert.equal(f.elements.status.textContent, 'Agent is replying…');
+  assert.equal(f.elements['activity-bar'].hidden, false);
+});

@@ -16,6 +16,7 @@ let cid = localStorage.getItem('perf-chat-conversation');
 let state, stream, contextSpec, contextVersion, dirty = false, refreshSequence = 0;
 let navigationSequence = 0;
 let errorSource = '';
+let connectionNotice = '';
 let streamCleanup = () => {};
 const drafts = new Map();
 const pendingMessages = new Set();
@@ -51,6 +52,27 @@ const statusNames = {
   cancelling: 'Cancelling…', cancelled: 'Cancelled', failed: 'Error',
   succeeded: 'Completed', demo: 'Demo completed'
 };
+
+function setActivityStatus(text, tone = 'neutral', working = false) {
+  $('status').textContent = text;
+  $('status').setAttribute('data-tone', tone);
+  $('status').setAttribute('data-working', String(working));
+  $('activity-bar').hidden = !working;
+}
+
+function renderActivityStatus() {
+  if (connectionNotice) return setActivityStatus(connectionNotice);
+  if (!state) return setActivityStatus('Loading…');
+  const run = latest();
+  if (state.busy) return setActivityStatus('Agent is replying…', 'active', true);
+  if (pendingMessages.has(cid)) return setActivityStatus('Sending…', 'active', true);
+  if (state.last_error || run?.status === 'failed') return setActivityStatus('Error', 'error');
+  if (['queued', 'running', 'cancelling'].includes(run?.status)) {
+    return setActivityStatus(statusNames[run.status], 'active', true);
+  }
+  const tone = ['succeeded', 'demo'].includes(run?.status) ? 'success' : 'neutral';
+  setActivityStatus(run ? statusNames[run.status] || 'Ready' : 'Ready', tone);
+}
 
 function setContextOpen(open) {
   if (open && window.matchMedia('(max-width: 850px)').matches) setDialogsOpen(false);
@@ -146,7 +168,7 @@ async function refresh() {
   else renderCredentials();
   const run = latest();
   const active = run && ['queued', 'running', 'waiting', 'cancelling'].includes(run.status);
-  $('status').textContent = state.busy ? 'Agent is replying…' : (run ? statusNames[run.status] : 'Ready');
+  renderActivityStatus();
   $('run').disabled = dirty || state.busy || !!active || state.missing_fields.length > 0;
   $('run').title = dirty ? 'Save project settings before running'
     : state.missing_fields.length ? 'Clarify the task in chat and provide a Git repository or profiler result ID' : '';
@@ -163,7 +185,8 @@ async function open(id) {
   const navigation = ++navigationSequence;
   rememberDraft();
   streamCleanup(); stream = undefined;
-  cid = id; state = undefined; dirty = false;
+  cid = id; state = undefined; dirty = false; connectionNotice = '';
+  renderActivityStatus();
   tokenRemovals.clear();
   for (const [id] of tokenFields) $(id).value = '';
   $('send').disabled = true; $('run').disabled = true; $('cancel').disabled = true;
@@ -185,7 +208,7 @@ async function open(id) {
   if (navigation !== navigationSequence) return;
   const connection = new EventSource('/api/conversations/' + id + '/events');
   stream = connection;
-  let refreshing = false, requested = false, retryTimer;
+  let refreshing = false, requested = false, retryTimer, transportAvailable = true;
   const currentConnection = () => stream === connection && cid === id;
   const synchronize = async () => {
     requested = true;
@@ -196,19 +219,20 @@ async function open(id) {
       do {
         requested = false;
         await refresh();
+        if (currentConnection() && transportAvailable) { connectionNotice = ''; renderActivityStatus(); }
       } while (requested && currentConnection());
     } catch (error) {
       if (currentConnection()) {
-        $('status').textContent = 'Syncing again…';
+        connectionNotice = transportAvailable ? 'Syncing again…' : 'Reconnecting…'; renderActivityStatus();
         retryTimer = setTimeout(synchronize, 1000);
       }
     } finally { refreshing = false; }
   };
   streamCleanup = () => { connection.close(); clearTimeout(retryTimer); };
   connection.addEventListener('update', synchronize);
-  connection.onopen = synchronize;
+  connection.onopen = () => { transportAvailable = true; return synchronize(); };
   connection.onerror = () => {
-    if (stream === connection && cid === id) $('status').textContent = 'Reconnecting…';
+    if (currentConnection()) { transportAvailable = false; connectionNotice = 'Reconnecting…'; renderActivityStatus(); }
   };
 }
 
@@ -336,6 +360,7 @@ $('composer').onsubmit = event => {
     const requestKey = JSON.stringify([current, run?.status === 'waiting' ? run.id : '', content]);
     if (!messageRequests.has(requestKey)) messageRequests.set(requestKey, createRequestId());
     pendingMessages.add(current);
+    renderActivityStatus();
     $('send').disabled = true;
     try {
       if (run?.status === 'waiting') {
@@ -350,7 +375,7 @@ $('composer').onsubmit = event => {
       if (cid === current) { await refresh(); await sidebar(); }
     } finally {
       pendingMessages.delete(current);
-      if (cid === current) $('send').disabled = !state || state.busy;
+      if (cid === current) { $('send').disabled = !state || state.busy; renderActivityStatus(); }
     }
   });
 };

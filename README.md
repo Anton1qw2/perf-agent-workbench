@@ -50,6 +50,10 @@ may ask for a result ID after a repository-only launch. Reply in chat.
 Chat messages support Markdown in Web and TUI. Web also renders tables and fenced
 code blocks; raw HTML is escaped and remote images are not loaded. The Web execution
 status panel shows two lines with internal scrolling; Copy copies its full text.
+Working states show animated blue dots and a thin activity bar. Errors use muted red,
+completed runs use green, and clarification/cancellation/reconnection stay neutral.
+Animation stops while waiting for user input or reconnecting and respects reduced-motion
+preferences. A green completion status does not establish a performance improvement.
 
 TUI commands include `/new`, `/open ID`, `/run`, `/cancel` and
 `/set target.repository=...`. F2 toggles project settings.

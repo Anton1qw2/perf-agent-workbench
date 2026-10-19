@@ -101,3 +101,24 @@ passed. A real headless Edge browser verified full-text copying over HTTP, a sta
 height of two lines, internal overflow and a visible composer at desktop (1280px)
 and mobile (390px) widths. Collapsed and expanded sidebars were visually inspected.
 Clipboard permission failures produce an actionable error rather than a success label.
+
+
+## Activity animation and status colors: two iterations
+
+Date: 2026-10-20. Scope: Web activity indicators, calm status colors and SSE recovery.
+
+1. **Iteration 1:** the critic confirmed a **P2** race: a snapshot request already
+   in flight could complete after an SSE error and clear the reconnecting status,
+   restarting work animation while the event stream was disconnected. A per-connection
+   transport flag now prevents snapshot success from clearing that notice until
+   an SSE open event and successful synchronization. A regression reproduces the race.
+2. **Iteration 2:** the critic confirmed the fix and found no further actionable
+   defects. All **25 Web state tests** were independently rerun successfully.
+
+Validation: **25 Web state tests passed**, JavaScript syntax and diff whitespace
+checks passed. Real Edge checks covered running/success/error colors, two animation
+indicators, reduced-motion disabling, desktop and mobile layout, and both sidebars.
+A separate local demo API and worker were started for preview. Screenshots use
+controlled sample conversation data and do not represent profiler measurements.
+Work animation stops for clarification, terminal states and connection loss.
+Green indicates completed execution, never a verified performance improvement.
