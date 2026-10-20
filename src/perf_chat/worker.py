@@ -4,8 +4,8 @@ import time
 from .config import Settings
 from .contracts import ClarificationAnswer, ExecutionEvent, PerformanceResult, PerformanceTask
 from .executor import DemoExecutor
+from .integrations.git_mcp import MCPGitGateway, git_token_destination
 from .integrations.git_source import GitSourceGateway
-from .integrations.gitlab_source import RepositorySourceGateway
 from .integrations.profiler_mcp import DemoProfilerGateway, MCPProfilerGateway
 from .llm import ChatModel
 from .orchestrator.agent import OrchestratorAgent
@@ -45,7 +45,6 @@ class Worker:
         settings = self.settings
         repository = run["task"]["target"].get("repository") or ""
         profiler_token = self.store.run_token(run, "profiler", settings.profiler_mcp_url)
-        git_token = self.store.run_token(run, "git", repository)
         gateway = (
             DemoProfilerGateway()
             if settings.executor_mode == "profile-demo"
@@ -58,14 +57,20 @@ class Worker:
             )
         )
         local_source = GitSourceGateway.for_repository(settings.git_repositories, repository)
-        source = (local_source if settings.executor_mode == "profile-demo" else RepositorySourceGateway(
-            local_source, repository=repository, token=git_token,
-        ))
+        source = local_source
+        git_token = (self.store.run_token(run, "git_mcp", git_token_destination(
+            settings.git_mcp_url, repository,
+        )) if settings.git_mcp_url and settings.executor_mode == "profile-mcp" else "")
+        git = (MCPGitGateway(
+            settings.git_mcp_url, settings.git_mcp_timeout,
+            token=git_token or settings.git_mcp_token, allowed_tools=settings.git_allowed_tools,
+        ) if settings.git_mcp_url and settings.executor_mode == "profile-mcp" else None)
         return ProfileAnalysisExecutor(
             self.analyzer_factory(AnalysisServices(
                 profiler=gateway, model=self.model, source=source,
                 analysis_id=run["id"], max_input_bytes=settings.model_input_bytes,
-            )), source_gateway=source,
+                git=git,
+            )), source_gateway=source, git_gateway=git,
         )
 
     def tick(self):

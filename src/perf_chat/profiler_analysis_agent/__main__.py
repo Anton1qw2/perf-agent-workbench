@@ -4,6 +4,7 @@ import argparse
 import json
 
 from ..config import Settings
+from ..integrations.git_mcp import MCPGitGateway
 from ..integrations.git_source import GitSourceGateway
 from ..integrations.profiler_mcp import DemoProfilerGateway, MCPProfilerGateway
 from ..llm import ChatModel
@@ -13,9 +14,9 @@ from .factory import create_builtin_analyzer
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze profiler data using MCP")
-    parser.add_argument("--result-id", required=True)
+    parser.add_argument("--result-id", default="")
     parser.add_argument("--goal", required=True)
-    parser.add_argument("--repository", help="Optional local Git path, registered alias or GitLab URL")
+    parser.add_argument("--repository", help="Git MCP repository reference, local Git path or registered alias")
     parser.add_argument("--branch", help="Optional source revision; local default is HEAD")
     parser.add_argument("--metrics", nargs="*", default=[])
     parser.add_argument("--asm", action="store_true", help="Also request assembly detail")
@@ -26,8 +27,10 @@ def main():
     )
     args = parser.parse_args()
     settings = Settings.from_env()
-    if not args.demo and not settings.profiler_mcp_url:
-        parser.error("Set PROFILER_MCP_URL or use --demo")
+    if not args.result_id and not args.repository:
+        parser.error("Provide --result-id or --repository")
+    if not args.demo and not (settings.profiler_mcp_url or settings.git_mcp_url):
+        parser.error("Set PROFILER_MCP_URL or GIT_MCP_URL, or use --demo")
     gateway = (
         DemoProfilerGateway()
         if args.demo
@@ -43,6 +46,9 @@ def main():
         model=ChatModel(settings) if settings.mode == "llm" else None,
         source=GitSourceGateway.for_repository(settings.git_repositories, args.repository),
         max_input_bytes=settings.model_input_bytes,
+        git=MCPGitGateway(settings.git_mcp_url, settings.git_mcp_timeout,
+                          token=settings.git_mcp_token, allowed_tools=settings.git_allowed_tools)
+        if settings.git_mcp_url and not args.demo else None,
     ))
     report = agent.analyze(
         AnalysisRequest(

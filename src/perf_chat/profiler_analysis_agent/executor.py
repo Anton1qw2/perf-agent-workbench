@@ -16,11 +16,12 @@ def render_report(report):
 
 
 class ProfileAnalysisExecutor:
-    def __init__(self, agent, *, source_gateway=None):
+    def __init__(self, agent, *, source_gateway=None, git_gateway=None):
         self.agent = agent
         self.source_gateway = (
             source_gateway if source_gateway is not None else getattr(agent, "source_gateway", None)
         )
+        self.git_gateway = git_gateway if git_gateway is not None else getattr(agent, "git_gateway", None)
 
     def step(self, run_id, task, cursor, answer=None, *, deadline=None):
         analyzer_id = getattr(
@@ -32,7 +33,7 @@ class ProfileAnalysisExecutor:
                 summary="Analyzer implementation changed. Start a new run.",
             )), cursor
         if not cursor:
-            return ExecutionEvent(type="progress", message="Preparing profile metric analysis."), {
+            return ExecutionEvent(type="progress", message="Preparing performance analysis."), {
                 "stage": "analyze", "analyzer_id": analyzer_id,
             }
         cursor = {**cursor, "analyzer_id": analyzer_id}
@@ -98,7 +99,9 @@ class ProfileAnalysisExecutor:
                         options[awaiting] = value
         elif raw is not None and not isinstance(raw, dict) and not saved:
             return ask("options", "Provide analysis options as a JSON object, or {} for defaults.")
-        if not options.get("result_id"):
+        if not options.get("result_id") and not (
+            task.target.repository and self.git_gateway
+        ):
             return ask("result_id", "Provide the profiler result_id to analyze.")
         if "source" not in options and task.target.repository:
             options["source"] = {}

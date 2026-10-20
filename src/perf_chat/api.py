@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -11,8 +12,8 @@ from pydantic import BaseModel, Field, SecretStr
 
 from .config import Settings
 from .contracts import ClarificationAnswer, PerformanceTask
-from .integrations.gitlab_source import repository_url
-from .integrations.profiler_mcp import validate_token_destination
+from .integrations.git_mcp import git_token_destination
+from .integrations.mcp_gateway import validate_token_destination
 from .store import Conflict, NotFound, Store
 
 
@@ -49,6 +50,8 @@ def create_app(settings: Settings | None = None):
             cid,
             value["spec"]["target"].get("repository"),
             settings.profiler_mcp_url,
+            git_destination=git_token_destination(settings.git_mcp_url,
+                value["spec"]["target"].get("repository")),
         )
         return value
 
@@ -90,7 +93,10 @@ def create_app(settings: Settings | None = None):
     def spec(cid: str, body: SpecInput):
         if (body.spec.target.repository or "").startswith("https://"):
             try:
-                repository_url(body.spec.target.repository)
+                url = urlsplit(body.spec.target.repository)
+                if (not url.hostname or url.username or url.password or url.query or url.fragment
+                        or "\\" in body.spec.target.repository):
+                    raise ValueError
             except ValueError:
                 return JSONResponse(
                     status_code=422,
@@ -100,7 +106,8 @@ def create_app(settings: Settings | None = None):
                 )
         changes = {}
         for field, kind, destination in [
-            ("git_token", "git", body.spec.target.repository or ""),
+            ("git_token", "git_mcp", git_token_destination(settings.git_mcp_url,
+                body.spec.target.repository)),
             ("profiler_token", "profiler", settings.profiler_mcp_url),
         ]:
             secret = getattr(body.credentials, field, None)
@@ -120,16 +127,18 @@ def create_app(settings: Settings | None = None):
                         return JSONResponse(status_code=422, content={
                             "detail": "Profiler tokens require HTTPS or loopback HTTP"
                         })
-                if value and kind == "git":
-                    try:
-                        repository_url(destination)
-                    except ValueError:
-                        return JSONResponse(
-                            status_code=422,
-                            content={
-                                "detail": "Use an HTTPS GitLab repository URL without embedded credentials"
-                            },
-                        )
+                if kind == "git_mcp":
+                    if value:
+                        try:
+                            if not body.spec.target.repository or not settings.git_mcp_url:
+                                raise ValueError
+                            validate_token_destination(settings.git_mcp_url)
+                        except ValueError:
+                            return JSONResponse(status_code=422, content={
+                                "detail": "Configure Repository and GIT_MCP_URL; Git tokens require HTTPS or loopback HTTP"
+                            })
+                    # Clear any legacy GitLab binding without forwarding it to the new server.
+                    changes["git"] = ("", body.spec.target.repository or "")
                 changes[kind] = (value, destination)
         try:
             store.update_spec(cid, body.spec, body.expected_version, changes)

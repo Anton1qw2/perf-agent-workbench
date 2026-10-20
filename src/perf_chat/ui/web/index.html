@@ -47,9 +47,9 @@
     <form id="context-form">
       <details class="settings-group" id="repository-settings" open>
         <summary id="repository-settings-toggle">Repository</summary>
-        <div class="field"><label for="repository">GitLab URL or local alias</label><input id="repository" autocomplete="off" placeholder="https://gitlab.example.com/team/project"></div>
+        <div class="field"><label for="repository">Repository URL, reference or local path</label><input id="repository" autocomplete="off" placeholder="https://git.example.com/team/project"></div>
         <div class="field"><label for="branch">Branch</label><input id="branch" autocomplete="off" placeholder="For example, main"></div>
-        <div class="field token-field"><label for="git-token">GitLab API token</label><input id="git-token" type="password" autocomplete="new-password" spellcheck="false" maxlength="8192" placeholder="Enter token" aria-describedby="git-token-status"><div class="token-meta"><span id="git-token-status">Not configured</span><button id="remove-git-token" type="button" class="token-remove" hidden>Remove GitLab token</button></div></div>
+        <div class="field token-field"><label for="git-token">Git access token (optional)</label><input id="git-token" type="password" autocomplete="new-password" spellcheck="false" maxlength="8192" placeholder="Enter token" aria-describedby="git-token-status"><div class="token-meta"><span id="git-token-status">Not configured</span><button id="remove-git-token" type="button" class="token-remove" hidden>Remove Git token</button></div></div>
       </details>
       <details class="settings-group" id="profiler-settings" open>
         <summary id="profiler-settings-toggle">Profiler</summary>

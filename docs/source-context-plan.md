@@ -4,8 +4,9 @@ Status: historical design and four critique iterations, not the current analyzer
 workflow or configuration contract. The fixed metric/hotspot flow below has been
 replaced by dynamic MCP planning. See [the analyzer guide](analyzer-extension.md)
 and [the integration guide](integration-guide.md) for current behavior, including
-explicit local paths and planner-selected source. A subsequent GitLab HTTPS API extension with backend token storage is now
-available; trusted build-manifest linkage remains future work. The original plan
+explicit local paths, planner-selected source and provider-neutral Git MCP.
+The intermediate GitLab REST integration is no longer used by the built-in worker;
+trusted build-manifest linkage remains future work. The original plan
 below records the initial local-only scope.
 
 ## Decision

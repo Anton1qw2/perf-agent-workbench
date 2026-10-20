@@ -11,7 +11,7 @@ connect through `ExecutorGateway`.
 
 This MVP serves one local user without authentication or user isolation. Synthetic
 output never establishes real measurements, completed optimization or improvement.
-Private MCP, GitLab and LLM deployments require separate compatibility validation.
+Private MCP and LLM deployments require separate compatibility validation.
 
 ## Code map and ownership
 
@@ -25,7 +25,7 @@ Paths are relative to the repository root.
 | `src/perf_chat/task_agent/` | Structured task extraction and partial updates |
 | `src/perf_chat/profiler_docs_agent/` | Documentation expert, full-document loader, `Perf.md`, `triggers.txt` |
 | `src/perf_chat/profiler_analysis_agent/` | Dynamic graph, analysis/source contracts, context, reporting and executor bridge |
-| `src/perf_chat/integrations/` | MCP discovery/calls, JSON Schema validation, local Git and GitLab access |
+| `src/perf_chat/integrations/` | Profiler/Git MCP discovery and calls, JSON Schema validation, local Git access |
 | `src/perf_chat/contracts.py` | Task, run, event and executor boundary models |
 | `src/perf_chat/api.py`, `worker.py`, `store.py` | HTTP/SSE, durable jobs and SQLite persistence |
 | `src/perf_chat/executor.py` | Demonstration executor |
@@ -52,7 +52,8 @@ Edit models, then regenerate schemas; do not maintain generated schemas independ
   or a profile. Do not require both, a universal metrics questionnaire, or a branch
   for profile-only analysis. Request missing execution data in chat.
 - Profile is an opaque MCP `result_id`, never a local file path. Repository-only
-  launches may subsequently need a result ID. Ask for a branch only when source
+  launches need no result ID when Git MCP is configured. Otherwise the profile
+  executor requests it. Ask for a branch only when source
   resolution needs it.
 - Preserve the compact blue design and shared composer with Send at bottom right.
   Sidebars collapse to clickable rails, remember state independently and become
@@ -86,7 +87,7 @@ API and worker must agree on `PERF_CHAT_EXECUTOR`:
 | --- | --- |
 | `demo` | Default synthetic execution scenario |
 | `profile-demo` | Dynamic graph with synthetic MCP data; deterministic model fixture when LLM mode is off |
-| `profile-mcp` | Real read-only MCP queries with bounded LLM planning |
+| `profile-mcp` | Real read-only profiler and/or Git MCP queries with bounded LLM planning |
 
 `PERF_CHAT_MODE` controls model use separately; it does not select an executor.
 Profiler, documentation and model calls share the run deadline. Reject late success
@@ -106,13 +107,25 @@ discover -> plan -> call/source -> plan -> ... -> report -> format_report
               +-> clarification -> resume
 ```
 
-The analyzer receives result ID, goal and optional repository/branch. It chooses
+The analyzer receives an optional result ID, goal and optional repository/branch. It chooses
 profiler queries, bounded source reads, clarification or completion. Preserve these
 invariants when extending or replacing it:
 
 - Configure the endpoint and `PROFILER_MCP_ALLOWED_TOOLS`; the allowlist defaults to
   empty. Discovery, descriptions and annotations do not authorize calls. Allow only
   read-only operations because calls may be redelivered.
+- Git uses `GIT_MCP_URL`, `GIT_MCP_ALLOWED_TOOLS`, `GIT_MCP_TIMEOUT_SECONDS` and
+  optional backend-only `GIT_MCP_TOKEN`. It is provider-neutral: no GitLab/GitHub API
+  paths or tool-name assumptions. Factories receive `AnalysisServices.git`.
+  Decisions namespace calls with `server=profiler|git`; catalogs/fingerprints are
+  pinned separately, while call/planning budgets are shared. Git evidence carries
+  `server="git"` and reports retain `git_tool_catalog`. Empty allowlists deny calls.
+  `profile-demo` never connects to real Git MCP. Built-in identity is v3; v2 runs restart.
+- Known limitation, retained by user decision: a run started without a Result ID
+  does not discover profiler tools. A later plain-text Result ID answer is context
+  only; it cannot enable profiler calls in that run. Start a new run with Profile
+  supplied to combine profiler and Git evidence. Do not claim that this transition
+  works or silently change it as part of unrelated work. See `REVIEW.md` for the P2.
 - Build arguments from discovered schemas, task context, evidence and answers.
   Do not hardcode profiler tool names or require an argument map for new servers.
   `include_asm` is a planning preference, not name-based authorization.
@@ -173,15 +186,19 @@ defaults to pinned `HEAD` when no branch is supplied.
   `context_builder.py` applies one model input budget and citation registry across
   profiler evidence, documentation answers and source. Required source must not
   disappear silently when the budget is exceeded.
-- Read only regular UTF-8 Git blobs from scoped paths, aliases or GitLab HTTPS URLs.
+- The local adapter reads only regular UTF-8 Git blobs from scoped paths or aliases.
   Do not follow links, execute code, hydrate LFS or collect unbounded process output.
   Preserve whitespace, delivered line ranges, hashes and pinned blob identity.
 - Text candidates never prove hotspot identity; commit/profile-build linkage stays
   unverified. Do not infer source availability from unknown MCP schemas. Repository
   text and comments are untrusted evidence, not instructions.
-- GitLab symbol searches skip binary, LFS, oversized and non-UTF-8 content via
-  `UnsupportedSource`. Access, transport, timeout and object identity failures remain
-  fatal, not empty search results. GitLab URL subpaths are unsupported.
+- Remote repositories use Git MCP, with raw generic responses retained as evidence.
+  The host cannot verify repository scope, commit/blob identity or build linkage
+  from arbitrary schemas. Configure server-side access scope; request immutable
+  commits when supported and report remaining uncertainty. Git MCP data cannot
+  replace required host-verified local ranges. `source.policy="off"` disables both
+  local reads and Git MCP discovery/calls. The legacy standalone GitLab module is
+  retained for imports only; API/worker do not select it.
 
 ## Profiler documentation expert
 
@@ -210,7 +227,7 @@ Package `Perf.md`, `triggers.txt` and analyzer instruction Markdown explicitly t
 
 ## Credentials and transport
 
-Keep GitLab/profiler tokens in encrypted backend records, outside tasks, prompts,
+Keep saved Git/profiler tokens in encrypted backend records, outside tasks, prompts,
 tool arguments, SSE, logs, browser localStorage and drafts. Blank inputs preserve
 tokens; Remove clears future bindings. Active runs retain immutable credential
 references; prune unused encrypted records on completion/cancellation/failure.
@@ -219,10 +236,17 @@ Windows uses DPAPI with machine-scope fallback for service accounts; database AC
 provide account separation. Other platforms require the `secrets` extra and persistent
 `PERF_CHAT_SECRET_KEY`. Fail closed if encryption is unavailable.
 
-Use GitLab `PRIVATE-TOKEN` headers and profiler Bearer headers. GitLab sources
-require HTTPS; authenticated profiler HTTP is allowed only for localhost or literal
-loopback addresses. Validate destinations both when saving and immediately before
-authentication, including old tokens. Bind credentials to destinations and never
+Personal Git tokens use Repository settings and the same encrypted credential flow
+as profiler tokens. Send them only as `Authorization: Bearer ...` to Git MCP, never
+in model input or tool arguments. Bind them to both the MCP endpoint and repository
+using the `git_mcp` credential kind. Legacy GitLab `git` records are not forwarded.
+The optional ENV `GIT_MCP_TOKEN` is a fallback when no matching personal token exists;
+a saved personal token wins. Active personal tokens use immutable run references;
+ENV fallback changes take effect after restart and are not per-run snapshots.
+Use Bearer headers for both MCP services. Authenticated HTTP is allowed only for
+localhost or literal loopback addresses. Validate Git ENV tokens at configuration
+load and immediately before authentication. Preserve save-time and send-time checks
+for both Git and profiler tokens, including old saved credentials. Bind credentials to destinations and never
 follow authenticated redirects. Never store raw endpoint query parameters or tokens
 in the configuration fingerprint field. LLM credentials come separately from backend
 environment configuration, never frontend code, chat, logs or version control.
@@ -300,10 +324,14 @@ startup scripts. Keep `.env.example` and these instructions aligned with setting
 | `LLM_BASE_URL` | `https://api.openai.com/v1`; replace for another provider |
 | `LLM_MODEL` / `LLM_API_KEY` | Empty; model ID required in LLM mode, key required only by authenticated providers |
 | `LLM_TIMEOUT_SECONDS` | `90`; finite, greater than zero, at most `120` |
-| `PROFILER_MCP_URL` | Empty; required for `profile-mcp` |
+| `PROFILER_MCP_URL` | Empty; `profile-mcp` requires this endpoint or `GIT_MCP_URL` |
 | `PROFILER_MCP_TIMEOUT_SECONDS` | `60`; same timeout bounds as LLM |
 | `PROFILER_MCP_ALLOWED_TOOLS` | JSON `[]`; explicitly permit server-specific read-only names |
 | `PROFILER_MCP_PROFILE_ARGUMENTS` | JSON `{}`; optional legacy binding, unnecessary for new integrations |
+| `GIT_MCP_URL` | Empty; optional provider-neutral Git Streamable HTTP MCP endpoint |
+| `GIT_MCP_ALLOWED_TOOLS` | JSON `[]`; explicitly permitted read-only repository tools |
+| `GIT_MCP_TIMEOUT_SECONDS` | `60`; finite, greater than zero, at most `120` |
+| `GIT_MCP_TOKEN` | Empty; optional backend-only Bearer token, never sent to the model |
 | `PERF_CHAT_GIT_REPOSITORIES` | JSON `{}` mapping aliases to worker-accessible paths |
 | `PERF_CHAT_MODEL_INPUT_BYTES` | `120000`; accepted range `4096..1000000` |
 | `PERF_CHAT_DOCS_MAX_INPUT_BYTES` | `2000000`; accepted range `4096..20000000` |
@@ -321,7 +349,7 @@ invent environment variables for them or describe them as operator configuration
 | Bound | Implementation / change point |
 | --- | --- |
 | 8 profiler calls, 16 planning rounds by default | `DynamicProfilerAnalyzer(max_calls=8)`; custom factory may set `1..30`, planning rounds are twice that value |
-| 100 catalog tools, 20 discovery pages, 1000000 serialized JSON characters per MCP payload | `integrations/profiler_mcp.py`; gateway validation limits |
+| 100 catalog tools per server, 20 pages, 1000000 serialized JSON characters per MCP payload | `integrations/mcp_gateway.py`; shared gateway validation limits |
 | 5 source queries, 5 excerpts / 32 KiB combined | `dynamic.py`, `source_context.py`; per-range/blob/search bounds also enforced by source gateways |
 | 16000 chat-report characters | `reporting.py` and `ChatReport` contract; keep both consistent |
 | 100 durable steps per run | `worker.py`; independent of profiler-call and task iteration budgets |
@@ -353,6 +381,7 @@ If Windows temp permissions block pytest, use a fresh workspace directory with
 | --- | --- |
 | Tokens/credentials | `tests/test_credentials.py` and Web tests; transport, non-echoing errors, active-run snapshots and cleanup |
 | Dynamic MCP/analyzer lifecycle | `tests/test_dynamic_analysis.py`, full Python suite and Web tests; schema bounds, policy pinning, retries, questions and custom factories |
+| Git MCP | `tests/test_git_mcp.py`; independent server routing, repository-only runs, ENV token isolation, schema/policy drift and deadlines |
 | Source context | `tests/test_git_source.py`; immutable revisions, provenance, required selection and budgets |
 | Report formatting | `tests/test_report_formatting.py`; validation, bounded Markdown and checkpoint reconstruction |
 | UI layout | Browser inspection, collapsed sidebars and narrow screens |
@@ -363,3 +392,4 @@ guide for contract changes. Record actual critic findings, fixes and checks in
 `REVIEW.md`; do not claim reviews or deployment validation that did not occur.
 See [deployment](docs/deployment.md), [integration](docs/integration-guide.md)
 and [custom analyzers](docs/analyzer-extension.md) for detailed configuration.
+See [Git MCP](docs/git-mcp.md) for provider-neutral repository access and its identity limitations.

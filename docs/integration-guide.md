@@ -2,154 +2,78 @@
 
 ## Connection settings and API tokens
 
-The right panel has independent collapsible groups: **Repository** (GitLab URL or local
-alias, Branch, GitLab API token) and **Profiler** (Result ID, Profiler API token).
-Click a group heading or use Enter/Space to toggle it. Each group's expansion state
-is remembered in browser localStorage independently of the sidebar.
+Project settings group Repository (provider-neutral URL/reference or local path,
+optional branch and Git access token) and Profiler (Result ID, optional API token).
+Groups remember their collapsed state independently. Git MCP endpoint and permissions
+are configured in ENV. Its optional ENV Bearer token is a fallback; a saved personal
+Git token takes precedence, following the profiler authentication flow.
+See [Git MCP setup](git-mcp.md) for the complete configuration and security contract.
 
-Token inputs are password fields. Blank keeps the saved token; enter a value to
-replace it, or use Remove and Save to clear it for future runs. Unsaved tokens are
-cleared when switching chats and are never stored in browser drafts/localStorage.
-Metadata and credential changes are saved in one version-checked transaction.
+Git/profiler tokens are encrypted backend records, separate from tasks, prompts, tool
+arguments, SSE and logs. Blank preserves the saved token; Remove and Save clears
+future bindings. Active runs retain immutable credential references. Unused records
+are pruned when their last active run finishes. Unsaved browser tokens are cleared
+on chat switches and never retained in drafts/localStorage.
 
-Tokens are encrypted backend records, separate from PerformanceTask, prompts, tool
-arguments, SSE and logs. API responses expose configured flags only. Each active run
-snapshots opaque credential references; rotation/removal does not change its token.
-Unbound old token records are pruned when their last active run finishes or is cancelled.
+Windows uses DPAPI with machine-scope fallback for service accounts; protect database
+ACLs. Other platforms require `.[secrets]` and a persistent `PERF_CHAT_SECRET_KEY`
+shared by API and worker. Encryption fails closed. Moving the database to another
+machine/account may require re-entering credentials.
 
-Windows uses account-scoped DPAPI, falling back to machine-scoped DPAPI for backend
-accounts without a loaded user profile. In that case filesystem ACLs provide account
-separation; keep the database private. Other platforms require `pip install -e ".[secrets]"`
-and a persistent Fernet key in PERF_CHAT_SECRET_KEY shared by API and worker. Missing
-encryption support fails the save; there is no plaintext fallback. OS-protected
-credentials may need re-entry when moving the database to another machine/account.
-
-Configure PROFILER_MCP_URL on API and worker before saving the profiler token. The
-[MCP transport](https://github.com/modelcontextprotocol/python-sdk/blob/v1.26.0/src/mcp/client/streamable_http.py)
-sends it as an HTTP Bearer header to that configured endpoint. Select
-PERF_CHAT_EXECUTOR=profile-mcp for real profiler data; profile-demo stays synthetic.
-
-GitLab HTTPS URLs need no local clone or alias registration. The read-only API uses
-PRIVATE-TOKEN as described in [GitLab authentication](https://docs.gitlab.com/api/rest/authentication/).
-The token needs project access and required read API permissions. It is bound to the
-exact saved repository URL and is not forwarded to another repository or through
-redirects. Local registered aliases continue using local Git objects without tokens.
-Remote reads retain commit pinning, blob hashes and source size/type restrictions.
-The API must be at the GitLab host-root /api/v4; subpath hosting needs an adapter extension.
-Private GitLab/MCP services are not available here; tests simulate their HTTP responses.
-
-PUT /api/conversations/{id}/spec accepts optional `credentials` beside `spec` and
-`expected_version`: `{"git_token":"new value","profiler_token":"new value"}`.
-Omit a field to retain it; an empty string clears it. TUI shows token status; use
-Web or the backend API to manage values. Never paste tokens into chat or repository URLs.
+Configure `PROFILER_MCP_URL` before saving a profiler token. It is sent only as a
+Bearer header to its bound endpoint. Both MCP transports prohibit authenticated
+redirects and require HTTPS except localhost/literal loopback HTTP. API responses
+expose configured flags only. `PUT /api/conversations/{id}/spec` accepts optional
+`credentials.profiler_token` and `credentials.git_token` beside `spec` and
+`expected_version`: omission preserves the value; an empty string clears it.
+Personal Git tokens are bound to both repository and MCP endpoint. The worker uses
+immutable run references and never forwards legacy GitLab token records to Git MCP.
+The built-in worker no longer invokes the legacy GitLab REST adapter.
 
 ## Git source context
 
-The profile analyzer can enrich metrics with source from a registered local Git
-alias, an explicit user-selected local Git path, or an HTTPS GitLab repository.
-Local reads need no network; GitLab
-reads use its API. Neither changes the user's working tree. Repository files and comments are
-untrusted evidence, not instructions. The existing analyzer uses a Git gateway and
-packaged instructions; there is no additional LLM Git agent.
+The analyzer receives repository/branch metadata from the run snapshot. With Git MCP,
+it discovers allowed tools, forms schema-driven queries and retains generic responses
+as `Evidence.server="git"`. No provider-specific API paths or tool names are assumed.
+Repository-only analysis can start without a profiler Result ID. Git responses are
+not profiling measurements or host-verified source snapshots; repository/commit/build
+identity remains unverified unless an adapter establishes it. See [Git MCP](git-mcp.md).
 
-Register aliases in the backend environment (same configuration for API and worker):
-
-```dotenv
-PERF_CHAT_GIT_REPOSITORIES={"my-service":"C:/repos/my-service"}
-PERF_CHAT_MODEL_INPUT_BYTES=120000
-```
-
-Use `my-service` or an explicit local path in Repository. Branch selects a local
-branch; leaving it empty uses a pinned `HEAD`. In LLM mode the planner can select
-bounded source ranges or symbol candidates itself. Configure additional source
-constraints through chat; agreed options are stored in
-`details.profile_analysis.source`, for example:
+The local Git adapter remains available for explicitly selected local paths or
+aliases registered through `PERF_CHAT_GIT_REPOSITORIES`. It never clones/fetches or
+changes the working tree. A missing branch defaults to a pinned `HEAD`. Local source
+options agreed in chat are stored in `details.profile_analysis.source`, for example:
 
 ```json
-{
-  "policy": "optional",
-  "locations": [{"path": "src/compute.cpp", "start_line": 10, "end_line": 60}],
-  "symbols": []
-}
+{"policy":"optional","locations":[{"path":"src/compute.cpp","start_line":10,"end_line":60}],"symbols":[]}
 ```
 
-For the deterministic demo, after describing the task, send a `field=value` message:
+`optional` permits analysis when local source is unavailable. `required` requests
+an explicit host-verified range; Git MCP output cannot replace it. Required user
+ranges are collected independently and prioritized over model-selected excerpts.
+`{"policy":"off"}` disables both local reads and Git MCP discovery/calls. To change
+a pinned local commit, start a new run. Explicit commits require `scope_repository`
+and `scope_ref` matching project settings. Source/profile-build linkage is unverified.
 
-```text
-details={"profile_analysis":{"source":{"policy":"optional","locations":[{"path":"src/compute.cpp","start_line":10,"end_line":60}]}}}
-```
+Local preparation outcomes are persisted before analysis and reused after restart;
+missing objects never cause substitution with the current branch tip. Reads preserve
+whitespace, actual delivered ranges, Git blob hashes and citation IDs. Only regular
+UTF-8 blobs are supported: no symlink/submodule traversal, LFS hydration, binary
+decoding or code execution. Planner selections use `origin=model_selection`, with
+`resolution=model_location` for explicit ranges; symbol matches are only candidates.
 
-`optional` preserves metric analysis when source is unavailable. `required` asks for
-an explicit source range or selection when model interpretation cannot proceed;
-reply with a partial source-options object, or `{"policy":"off"}` to continue
-without source. `profile-demo` supplies a deterministic model fixture even when
-LLM mode is off. For direct source collection with `model_enabled=False`, required
-source delivery is marked `interpretation_disabled`; no model delivery is claimed.
+Local limits: five queries, five excerpts, eighty lines/8 KiB each, 32 KiB combined,
+256 KiB per blob, 1000 search paths, 8 MiB scanned text and twenty hits. Preparation
+has a five-second child budget; collection deducts preparation time and reserves
+time for reporting within the run deadline. One context builder budgets instructions,
+schemas, MCP evidence, documentation answers and source together. Required ranges
+cannot silently disappear; narrowing is requested if needed. Optional context may
+be omitted. Only actually delivered evidence IDs may be cited.
 
-Symbol search returns text candidates, even if only one hit exists. In required mode
-select an explicit path/range from the candidates. Current MCP response formats are
-unknown: no profiler source locations are guessed or automatically inferred. The
-planner may select locations/symbols, but these are recorded as model selections,
-not user choices or verified hotspot mappings. Required user-selected ranges are
-collected independently and cannot be replaced by planner-selected excerpts.
-Add a format-specific adapter later if the server exposes reliable source hints.
-
-The worker validates result ID/options, resolves the source revision, persists a
-`resolved`, `unavailable` or `disabled` snapshot with a progress event, then analyzes
-using that snapshot. Metric/source clarification and worker restart keep the same
-commit. Preparation failures are frozen too; retry source resolution in a new run.
-Missing pinned objects never cause substitution with the current branch tip.
-
-To select an exact commit through chat, also record `scope_repository` and `scope_ref`
-matching current project settings. A stale selection asks for clarification. The
-selected commit does **not** prove that it produced the profiled binary; all current
-source/profile matches remain `unverified`. A future trusted build manifest can
-provide that connection.
-
-The standalone Python API supports source requests and explicit snapshot reuse:
-
-```python
-from perf_chat.integrations.git_source import GitSourceGateway
-from perf_chat.integrations.profiler_mcp import DemoProfilerGateway
-from perf_chat.profiler_analysis_agent import AnalysisRequest, AnalysisServices, create_builtin_analyzer
-from perf_chat.profiler_analysis_agent.source_contracts import SourceRequest, SourceLocation
-from perf_chat.profiler_analysis_agent.source_context import prepare_source
-
-git = GitSourceGateway({"my-service": "C:/repos/my-service"})
-selection = SourceRequest(repository="my-service", ref="main", locations=[
-    SourceLocation(path="src/compute.cpp", start_line=10, end_line=60),
-])
-snapshot = prepare_source(git, selection)  # Persist this for durable standalone retries.
-agent = create_builtin_analyzer(AnalysisServices(profiler=DemoProfilerGateway(), source=git))
-report = agent.analyze(AnalysisRequest(
-    result_id="demo-1", goal="Inspect CPU hotspots", source=selection,
-), source_snapshot=snapshot)
-```
-
-The CLI accepts `--source-json` with the same `SourceRequest` fields. A configured
-model enables interpretation; the demo gateway still produces synthetic metrics.
-
-Source preparation has a five-second child budget. Each collection attempt deducts
-the recorded preparation time from that budget and reserves time for reporting;
-all operations also obey the run deadline. Limits: five snippets, eighty lines each, 8 KiB per snippet,
-32 KiB total, 256 KiB per blob, 1000 search paths, 8 MiB scanned text and twenty hits.
-Subprocess output is bounded while reading; type/size are checked before loading a
-blob. No symlink/gitlink traversal, LFS hydration, binary decoding or code execution.
-Paths must be repository-relative; build-machine paths need explicit mapping by the
-caller. Only UTF-8 text is currently supported.
-
-One context builder budgets system/schema/goal/MCP/documentation/source together.
-Optional sources/docs can be omitted to fit; required ranges request narrowing when
-needed. Essential metric evidence that cannot fit produces `insufficient_data`.
-`PromptContextBuilder` also accepts an optional provider-specific `token_counter`
-and `max_tokens`; the default UTF-8 byte cap is not a universal token guarantee.
-Source content preserves whitespace, exact transmitted line ranges, Git blob identity
-and SHA-256. Only actually delivered evidence IDs can be cited. Full bounded source
-evidence and `delivered_evidence_ids` are retained in the analysis report at the run
-endpoint. Existing reports without source fields remain valid.
-
-The design and four planning reviews are recorded in
-[Source context design](source-context-plan.md).
+`PromptContextBuilder` supports an optional provider-specific `token_counter` and
+`max_tokens`; the default byte bound is not a token guarantee. The historical source
+design is retained in [source-context-plan.md](source-context-plan.md); current graph
+and replacement contracts are in [analyzer-extension.md](analyzer-extension.md).
 
 ## Dynamic profile analyzer
 
@@ -215,9 +139,9 @@ python -m pip install -e ".[mcp]"
 # PROFILER_MCP_TIMEOUT_SECONDS=60
 ```
 
-The standalone CLI does not read saved Web token bindings and currently uses the
-local Git source gateway. Use the worker/Web integration for encrypted profiler
-tokens and GitLab source, or inject configured gateways through the Python API.
+The CLI reads Git MCP ENV settings and supports repository-only analysis with
+`--repository`. It does not read saved Web Git/profiler tokens. Use worker/Web for those
+encrypted bindings, or inject configured gateways through the Python API.
 
 `PERF_CHAT_EXECUTOR=profile-demo` enables synthetic analysis through the existing Run
 button. `demo` keeps the original executor scenario. API and worker must use the same
@@ -226,8 +150,8 @@ configuration and be restarted after a change. In profile modes, enter the serve
 are not required for profile-only analysis. A supplied repository is optional context;
 local source defaults to a pinned HEAD when no branch was specified. Missing repository
 access remains an explicit limitation. Required source asks the user to configure a
-new run or disable source for the current immutable run. If Profile is empty, execution asks
-for a result ID. Any additional identifiers or context are requested by the planner
+new run or disable source for the current immutable run. If Profile is empty, a configured Git MCP gateway can analyze the repository;
+otherwise execution asks for a result ID. Any additional identifiers or context are requested by the planner
 in chat; there is no automatic mandatory metric-selection questionnaire. The answer
 resumes the durable run.
 
@@ -537,6 +461,5 @@ snapshots, clarifications, recovery, deduplication, cancellation and headless TU
 startup. JavaScript tests require Node.js 18+; Web still needs no build step.
 
 Profiler API tokens require an HTTPS MCP URL; HTTP is allowed only for localhost or
-literal loopback addresses. This is checked when saving and sending tokens. GitLab
-symbol searches skip binary, oversized, LFS and non-UTF-8 content while preserving
-access and integrity errors.
+literal loopback addresses. This is checked when saving and sending tokens. Git MCP
+uses the same Bearer authentication and encrypted-token flow, with an optional ENV fallback.

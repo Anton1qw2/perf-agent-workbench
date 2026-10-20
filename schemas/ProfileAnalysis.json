@@ -4,8 +4,8 @@
       "additionalProperties": false,
       "properties": {
         "result_id": {
+          "default": "",
           "maxLength": 4096,
-          "minLength": 1,
           "title": "Result Id",
           "type": "string"
         },
@@ -67,7 +67,6 @@
         }
       },
       "required": [
-        "result_id",
         "goal"
       ],
       "title": "AnalysisRequest",
@@ -100,6 +99,15 @@
       "properties": {
         "id": {
           "title": "Id",
+          "type": "string"
+        },
+        "server": {
+          "default": "profiler",
+          "enum": [
+            "profiler",
+            "git"
+          ],
+          "title": "Server",
           "type": "string"
         },
         "operation": {
@@ -607,6 +615,14 @@
         "type": "object"
       },
       "title": "Tool Catalog",
+      "type": "array"
+    },
+    "git_tool_catalog": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Git Tool Catalog",
       "type": "array"
     },
     "analyzer": {

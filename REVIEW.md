@@ -215,3 +215,47 @@ Final validation: **148 Python tests passed**, **25 Web state tests passed**, Ru
 and `git diff --check` passed. Exported contract schemas and integration guidance
 were updated. Real private MCP servers and model providers still require deployment
 validation; these local checks do not establish compatibility with their private schemas.
+
+## Provider-neutral Git MCP and personal Bearer tokens
+
+Date: 2026-10-20. Local implementation validation followed by independent critic review.
+
+Profiler and Git gateways now share bounded MCP discovery/schema/transport code.
+The analyzer namespaces tools by server, checkpoints separate catalogs/fingerprints
+and shares the investigation/model budgets. Repository-only runs no longer need a
+profiler ID when Git MCP is configured. Custom factories receive `AnalysisServices.git`
+without requiring built-in analyzer attributes. The built-in worker no longer selects
+GitLab REST; the standalone legacy module remains import-compatible.
+
+Git endpoint/allowlist/timeout and optional fallback token are configured through ENV.
+Personal Git tokens use Project settings and the existing encrypted credential flow,
+with `Authorization: Bearer ...` sent only to Git MCP. The separate `git_mcp` credential
+kind binds them to both endpoint and repository. Saved personal tokens take precedence
+over ENV fallback. Rotation/removal preserves active-run references; unused records
+are pruned normally. Legacy GitLab credentials are never automatically forwarded.
+
+Validation: **170 Python tests passed**, **26 Web state tests passed**, Ruff and
+`git diff --check` passed. Tests cover equal tool names on two servers, repository-only
+runs/reconstruction, custom analyzer factories, schema/policy drift, deadlines, encrypted
+personal-token snapshots, destination binding, ENV fallback and cleanup. A live local
+Streamable HTTP MCP fixture confirmed discovery, schema-driven calls and Bearer auth.
+Browser checks covered generic repository saves, personal-token input clearing,
+collapsed panels and the narrow-screen overlay. Nine Markdown files, 31 local links/
+anchors and four Python snippets passed documentation checks. Contract schemas updated.
+
+Generic Git MCP schemas cannot establish repository scope, immutable commit/blob
+identity or profile-build linkage. These remain explicit report limitations; MCP data
+does not replace required host-verified local ranges. Server-side permissions must
+enforce access scope. Private Git MCP deployments and real LLM planning still require
+deployment validation. ENV fallback credentials are process configuration rather than
+immutable per-run snapshots; the snapshot guarantees above apply to saved personal tokens.
+
+The independent critic reproduced one P2: a repository-only run skips profiler
+discovery when its Result ID is empty. A subsequent Result ID answer is retained
+only as clarification context; the profiler catalog stays empty, and a profiler
+call fails with `insufficient_data`. On 2026-10-20 the user explicitly chose to
+retain this behavior and publish the implementation. Workaround: start a new run
+with Profile supplied. No fix or regression coverage for that transition is claimed.
+The critic found no other confirmed defects and independently passed 31 Git MCP/
+credential tests. The main review reran 71 focused Python tests, 26 Web tests, Ruff
+and documentation checks successfully.

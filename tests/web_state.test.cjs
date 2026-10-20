@@ -105,15 +105,15 @@ test('late submit never clears another conversation draft', async () => {
 
 test('tokens are sent separately, cleared after save and never stored in drafts', async () => {
   const f = await fixture();
-  f.elements['git-token'].value = 'synthetic-web-token';
+  f.elements['profiler-token'].value = 'synthetic-web-token';
   f.elements['context-form'].oninput();
   f.submit('context-form');
   await settle();
   const saved = f.requests.find(r => r.method === 'PUT');
-  assert.equal(saved.body.credentials.git_token, 'synthetic-web-token');
+  assert.equal(saved.body.credentials.profiler_token, 'synthetic-web-token');
   assert.ok(!JSON.stringify(saved.body.spec).includes('synthetic-web-token'));
-  assert.equal(f.elements['git-token'].value, '');
-  assert.equal(f.elements['git-token-status'].textContent, 'Saved on backend');
+  assert.equal(f.elements['profiler-token'].value, '');
+  assert.equal(f.elements['profiler-token-status'].textContent, 'Saved on backend');
   assert.ok(!JSON.stringify(f.conversations).includes('synthetic-web-token'));
   f.elements['profiler-token'].value = 'synthetic-unsaved-token';
   f.elements['context-form'].oninput();
@@ -136,6 +136,20 @@ test('blank token fields preserve saved credentials and Remove explicitly clears
   await settle();
   assert.equal(f.requests.filter(r => r.method === 'PUT').at(-1).body.credentials.profiler_token, '');
   assert.equal(f.elements['profiler-token-status'].textContent, 'Not configured');
+});
+
+test('personal Git token uses the separate credential payload and is cleared after save', async () => {
+  const f = await fixture();
+  f.elements['git-token'].value = 'synthetic-personal-token';
+  f.elements['context-form'].oninput();
+  f.submit('context-form');
+  await settle();
+  const saved = f.requests.find(r => r.method === 'PUT');
+  assert.equal(saved.body.credentials.git_token, 'synthetic-personal-token');
+  assert.ok(!JSON.stringify(saved.body.spec).includes('synthetic-personal-token'));
+  assert.equal(f.elements['git-token'].value, '');
+  assert.equal(f.elements['git-token-status'].textContent, 'Saved on backend');
+  assert.ok(!f.run('JSON.stringify([...drafts])').includes('synthetic-personal-token'));
 });
 
 test('a failed snapshot after the final SSE event retries without another event', async () => {

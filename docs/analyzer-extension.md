@@ -23,7 +23,10 @@ The planner follows the packaged `instructions/dynamic_analysis.md`: establish c
 find relevant measured costs, obtain useful detail and finish when evidence is sufficient.
 It selects only real tools and returns a validated JSON decision with a reason. There is
 no requirement that a profiler expose a metric catalog or use particular method names.
-The current profile reference remains an opaque `result_id` in the application contract.
+A second optional [Git MCP gateway](git-mcp.md) supplies provider-neutral repository
+tools. Decisions include `server=profiler|git`; the eight-call budget is shared.
+The current profile reference remains an opaque `result_id` in the application contract,
+with an empty default for Git-only analysis.
 The request also carries optional `repository` and `branch` fields. The worker passes
 user-selected repository metadata even when source access is unavailable. Explicit local
 Git paths are scoped to the run without clone/fetch; symbolic aliases require backend
@@ -38,7 +41,8 @@ collected independently of planner selections. Planner-selected excerpts carry
 `origin=model_selection` (and `resolution=model_location` for explicit ranges).
 They cannot replace required user-selected ranges. The planner cannot change repository,
 revision, authentication or permissions.
-A profile executor still asks for this reference if the task starts with only Git.
+A repository-only task uses Git MCP without a profile reference when that gateway
+is configured; otherwise the profile executor asks for a Result ID.
 The current transport opens a new MCP session for discovery/calls. Tools must accept
 durable identifiers and independent read-only requests; session-local handles or
 stateful tool protocols need a custom gateway/analyzer.
@@ -147,7 +151,8 @@ The factory is trusted backend code and receives services for the immutable run:
 - `analysis_id`: stable run ID, suitable for a custom LangGraph thread mapping.
 - `profiler`: configured gateway with catalog discovery and validated calls in MCP mode.
 - `model`: shared model adapter, or `None` in demo mode.
-- `source`: bounded Git/GitLab gateway using immutable credential references.
+- `source`: bounded local Git gateway using immutable source snapshots.
+- `git`: optional provider-neutral Git MCP gateway using backend ENV authentication.
 - `max_input_bytes`: model request budget.
 
 The synthetic demo gateway implements the same discovery/call protocol with a fixed
@@ -155,6 +160,9 @@ fixture catalog and synthetic responses; it has no legacy named profiler methods
 A custom graph can inspect `services.profiler.demo`.
 A replacement MCP gateway used by the built-in analyzer must implement `MCPToolGateway`,
 including a stable `configuration_fingerprint` for its endpoint and execution policy.
+Git and profiler fingerprints/catalogs are checkpointed separately. The current built-in
+identity is `builtin-dynamic-mcp-v3`; v2 active runs require restart. Git evidence carries
+`server="git"`, and the report retains `git_tool_catalog` separately.
 Use the MCP gateway's `call_tool` method for schema/policy enforcement and
 `PromptContextBuilder` for the common model input/citation budget. Custom graphs
 are responsible for enforcing their own algorithm, iteration limits and citations.

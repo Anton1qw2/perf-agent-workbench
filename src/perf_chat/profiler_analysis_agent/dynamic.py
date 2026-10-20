@@ -23,6 +23,7 @@ from .source_contracts import SourceContext, SourceLocation, SourceRequest
 
 class ToolDecision(StrictModel):
     action: Literal["call", "source", "finish", "ask"]
+    server: Literal["profiler", "git"] = "profiler"
     reason: str = Field(min_length=1, max_length=2000)
     tool: str | None = None
     arguments: dict = Field(default_factory=dict)
@@ -41,7 +42,7 @@ class StepState(TypedDict):
 class DynamicProfilerAnalyzer(EvidenceInterpreter):
     """Replace with any ProfileAnalyzer through Worker(analyzer_factory=...)."""
 
-    analyzer_id = "builtin-dynamic-mcp-v2"
+    analyzer_id = "builtin-dynamic-mcp-v3"
 
     def __init__(self, *args, max_calls=8, **kwargs):
         super().__init__(*args, **kwargs)
@@ -86,8 +87,9 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             notes.append(error)
         report = ProfileAnalysis(
             status="needs_input" if question else "insufficient_data" if error else "completed",
-            request=request, demo=self.gateway.demo, analyzer="dynamic-mcp-v2",
+            request=request, demo=self.gateway.demo, analyzer="dynamic-mcp-v3",
             evidence=state.get("evidence", []), tool_catalog=state.get("catalog", []),
+            git_tool_catalog=state.get("git_catalog", []),
             limitations=notes, open_questions=[question] if question else [],
             clarification_field=field, documentation=documentation, source_context=source_context,
             delivered_evidence_ids=sorted(delivered or []),
@@ -98,10 +100,23 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         return AnalysisStep(checkpoint=state, report=report)
 
     def _discover(self, request, state, snapshot):
-        tools = self.gateway.list_tools()
+        tools = (self.gateway.list_tools()
+                 if request.result_id and getattr(self.gateway, "url", True) else [])
+        git_tools = self.git_gateway.list_tools() if self._git_enabled(request) else []
         state.update(catalog=[tool.model_dump() for tool in tools], evidence=[], phase="plan",
+                     git_catalog=[tool.model_dump() for tool in git_tools],
                      calls=0, rounds=0, answers=[], decisions=[], limitations=[], analysis_questions=[])
-        return AnalysisStep(checkpoint=state, message="Profiler tool catalog discovered and pinned.")
+        if git_tools:
+            state["limitations"].append(
+                "Git MCP responses are untrusted repository evidence. Generic schemas do not "
+                "verify repository scope, immutable commit/blob identity or profile-build linkage. "
+                "Only the local Git adapter provides host-verified source snapshots."
+            )
+        return AnalysisStep(checkpoint=state, message="MCP tool catalogs discovered and pinned.")
+
+    def _git_enabled(self, request):
+        return bool(self.git_gateway and request.repository
+                    and (request.source is None or request.source.policy != "off"))
 
     @staticmethod
     def _has_usable_evidence(state):
@@ -130,10 +145,15 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
     def _plan(self, request, state, snapshot):
         if self.model is None:
             return self._output(request, state, error="Dynamic tool selection requires LLM mode.")
-        tools = [item for item in state["catalog"] if item["name"] in self.gateway.allowed_tools]
+        tools = [{**item, "server": "profiler"} for item in state["catalog"]
+                 if item["name"] in self.gateway.allowed_tools]
+        if self._git_enabled(request):
+            tools.extend({**item, "server": "git"} for item in state.get("git_catalog", [])
+                         if item["name"] in self.git_gateway.allowed_tools)
         if not tools:
             return self._output(request, state, error=(
-                "No discovered profiler tools are allowed. Configure PROFILER_MCP_ALLOWED_TOOLS."
+                "No discovered tools are allowed for the supplied inputs. Configure "
+                "PROFILER_MCP_ALLOWED_TOOLS or GIT_MCP_ALLOWED_TOOLS."
             ))
         if state["calls"] >= self.max_calls or state["rounds"] >= self.max_calls * 2:
             if not self._has_usable_evidence(state):
@@ -169,7 +189,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             if not request.source or request.source.policy == "off" or snapshot is None or snapshot.status != "resolved":
                 return self._output(request, state, question=(
                     "Repository source is unavailable for this run. Provide an accessible repository "
-                    "and revision in project settings and start a new run, or continue using profiler evidence."
+                    "and revision in project settings and start a new run, or continue using available MCP evidence."
                 ))
             if not decision.locations and not decision.symbols:
                 raise ValueError("Select a concrete source range or symbol")
@@ -182,41 +202,52 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             return AnalysisStep(checkpoint=state, message="Repository source query planned.")
         if decision.action == "finish":
             if not self._has_usable_evidence(state):
-                return self._output(request, state, error="No usable profiler evidence was collected.")
+                return self._output(request, state, error="No usable MCP evidence was collected.")
             state["phase"] = "report"
             return AnalysisStep(checkpoint=state, message="Profiler evidence ready for interpretation.")
-        if not decision.tool or decision.tool not in {tool["name"] for tool in tools}:
+        if not decision.tool or (decision.server, decision.tool) not in {
+            (tool["server"], tool["name"]) for tool in tools
+        }:
             raise ValueError("The planner selected an unavailable or disallowed tool")
-        selected_tool = next(tool for tool in tools if tool["name"] == decision.tool)
+        selected_tool = next(tool for tool in tools if tool["name"] == decision.tool
+                             and tool["server"] == decision.server)
         try:
             validate_schema(decision.arguments, selected_tool["input_schema"])
         except SchemaValidationError as error:
             # Return only schema locations/rules, never argument values or server errors.
             state["argument_feedback"] = {
-                "tool": decision.tool, "path": list(error.absolute_path), "rule": error.validator,
+                "server": decision.server, "tool": decision.tool,
+                "path": list(error.absolute_path), "rule": error.validator,
                 "message": "Arguments do not match the discovered input schema. Correct them "
                 "using known context or ask a concrete question if a value is unknown.",
             }
             return AnalysisStep(
                 checkpoint=state, message="Reviewing profiler arguments against the discovered schema.",
             )
-        if any(e["operation"] == decision.tool and e["arguments"] == decision.arguments
+        if any(e.get("server", "profiler") == decision.server
+               and e["operation"] == decision.tool and e["arguments"] == decision.arguments
                for e in state["evidence"]):
             raise ValueError("Repeated identical profiler query")
         state.update(phase="call", decision=decision.model_dump())
-        return AnalysisStep(checkpoint=state, message="Profiler query planned and checkpointed.")
+        return AnalysisStep(checkpoint=state, message="MCP query planned and checkpointed.")
 
     def _call(self, request, state, snapshot):
         decision = ToolDecision.model_validate(state["decision"])
-        tool = MCPTool.model_validate(next(t for t in state["catalog"] if t["name"] == decision.tool))
+        if decision.server == "git" and not self._git_enabled(request):
+            raise ValueError("Git MCP access is unavailable or disabled")
+        gateway = self.git_gateway if decision.server == "git" else self.gateway
+        catalog = state["git_catalog"] if decision.server == "git" else state["catalog"]
+        tool = MCPTool.model_validate(next(t for t in catalog if t["name"] == decision.tool))
         # The gateway enforces schemas, the allowlist, profile binding and schema drift.
         check_deadline()
-        data = self.gateway.call_tool(tool, decision.arguments, result_id=request.result_id)
+        data = gateway.call_tool(tool, decision.arguments, result_id=request.result_id)
         check_deadline()
-        state["evidence"].append(evidence(tool.name, decision.arguments, data, len(state["evidence"]) + 1))
+        item = evidence(tool.name, decision.arguments, data, len(state["evidence"]) + 1)
+        item["server"] = decision.server
+        state["evidence"].append(item)
         state["calls"] += 1
         state["phase"] = "plan"
-        return AnalysisStep(checkpoint=state, message="Profiler response saved as evidence.")
+        return AnalysisStep(checkpoint=state, message="MCP response saved as evidence.")
 
     @staticmethod
     def _saved_source_context(request, state):
@@ -348,6 +379,10 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
                 "MCP endpoint or tool policy changed; start a new run."
             ))
         state["connection_fingerprint"] = connection
+        git_connection = self.git_gateway.configuration_fingerprint if self.git_gateway else None
+        if state.get("git_connection_fingerprint", git_connection) != git_connection:
+            return self._output(request, state, error="Git MCP endpoint or tool policy changed; start a new run.")
+        state["git_connection_fingerprint"] = git_connection
         identity = hashlib.sha256(json.dumps({
             "result_id": request.result_id, "goal": request.goal,
             "metrics": request.metrics, "include_asm": request.include_asm,

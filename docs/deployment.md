@@ -88,7 +88,7 @@ access control outside the application before exposing it beyond a trusted local
 
 - LLM intake: set `PERF_CHAT_MODE=llm`, `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`.
 - Real profiler MCP: install `-e ".[mcp]"`, set `PERF_CHAT_EXECUTOR=profile-mcp` and
-  `PROFILER_MCP_URL` on both API and worker. Configure `PERF_CHAT_MODE=llm` and a
+  `PROFILER_MCP_URL` on both API and worker (optional for Git-only MCP analysis). Configure `PERF_CHAT_MODE=llm` and a
   compatible model, then set `PROFILER_MCP_ALLOWED_TOOLS` to a JSON array of your
   server's permitted read-only tool names. The default empty array permits no calls.
   Arguments come from discovered schemas; no argument map is required. Save an
@@ -100,7 +100,10 @@ access control outside the application before exposing it beyond a trusted local
   run API and worker under the same OS account.
 - Local source: register aliases in `PERF_CHAT_GIT_REPOSITORIES` or provide an explicit
   local Git path accessible to the worker. An omitted branch defaults to pinned `HEAD`.
-  GitLab source uses HTTPS repository URLs and backend token storage.
+  Remote repository access uses [Git MCP](git-mcp.md), independently of the hosting provider.
+- Git MCP: configure `GIT_MCP_URL`, `GIT_MCP_ALLOWED_TOOLS`, optional `GIT_MCP_TOKEN`
+  and `GIT_MCP_TIMEOUT_SECONDS`. Use LLM mode and `PERF_CHAT_EXECUTOR=profile-mcp`.
+  Repository-only analysis needs no profiler Result ID or profiler endpoint.
 
 See [the integration guide](integration-guide.md) for contracts and detailed limits.
 Real MCP deployments and Linux/macOS runtime behavior require environment-specific validation.

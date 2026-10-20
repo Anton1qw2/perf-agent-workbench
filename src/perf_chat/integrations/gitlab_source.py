@@ -1,4 +1,7 @@
-"""Read-only GitLab API source access; credentials stay in headers on one HTTPS origin."""
+"""Legacy standalone GitLab adapter; not used by API, worker or built-in analysis.
+
+Retained for import compatibility. New integrations use provider-neutral Git MCP.
+"""
 
 import asyncio
 import base64

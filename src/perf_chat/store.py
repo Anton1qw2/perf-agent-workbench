@@ -278,7 +278,7 @@ class Store:
         with self.tx() as db:
             return self._get(db, "runs", rid)
 
-    def credential_status(self, cid, repository, profiler_url):
+    def credential_status(self, cid, repository, profiler_url, *, git_destination=None):
         with self.tx() as db:
             rows = db.execute(
                 "SELECT b.kind, c.destination FROM credential_bindings b "
@@ -287,7 +287,9 @@ class Store:
             ).fetchall()
             return {
                 "git_token_configured": any(
-                    r["kind"] == "git" and r["destination"] == repository for r in rows
+                    (r["kind"] == "git_mcp" and r["destination"] == git_destination
+                     if git_destination is not None
+                     else r["kind"] == "git" and r["destination"] == repository) for r in rows
                 ),
                 "profiler_token_configured": any(
                     r["kind"] == "profiler" and r["destination"] == profiler_url for r in rows

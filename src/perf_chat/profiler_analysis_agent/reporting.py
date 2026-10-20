@@ -103,10 +103,10 @@ def _safe_url(url):
 
 def format_chat_report(report, *, unvalidated_output=None):
     """Render validated findings separately from any unvalidated model output."""
-    title = "## Profile analysis" + (" — SYNTHETIC DEMO" if report.demo else "")
+    title = "## Performance analysis" + (" — SYNTHETIC DEMO" if report.demo else "")
     status = {"completed": "Analysis completed", "needs_input": "More information needed",
               "insufficient_data": "Insufficient validated data"}[report.status]
-    blocks = [title, f"**Status:** {status}\n\n**Result ID:** {_escape(report.request.result_id, 500)}"]
+    blocks = [title, f"**Status:** {status}\n\n**Result ID:** {_escape(report.request.result_id or 'Not supplied', 500)}"]
     if report.demo:
         blocks.append("**Synthetic data only. No real measurements or optimization were established.**")
     shortened = False
@@ -148,7 +148,7 @@ def format_chat_report(report, *, unvalidated_output=None):
             + fence + "text\n" + excerpt + "\n" + fence)
         if len(text) > len(excerpt) or len(raw) > 8000:
             shortened = True
-    section("Evidence references", [f"{_escape(item.id, 100)} — {_escape(item.operation, 256)}"
+    section("Evidence references", [f"{_escape(item.id, 100)} — {item.server}: {_escape(item.operation, 256)}"
                                      for item in report.evidence[:12]])
     if report.source_context and report.source_context.snapshot:
         snapshot = report.source_context.snapshot

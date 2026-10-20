@@ -5,7 +5,7 @@ and delegating execution to external infrastructure. Web and terminal clients
 share an API, conversation history and task state.
 
 Two LangGraph agents handle conversational task intake and structured specification extraction.
-A profile analyzer can inspect metrics through MCP and add read-only Git/GitLab
+A profile analyzer can inspect metrics through MCP and add read-only Git MCP or local Git
 source context. The default executor is a **demo**; it performs no real optimization.
 
 ## Quick start
@@ -69,8 +69,8 @@ Configure `.env` for both API and worker:
 | `PERF_CHAT_API_URL` | TUI connection URL; defaults to `http://127.0.0.1:8000` |
 
 For real profiler queries, install `.[mcp]` and set `PROFILER_MCP_URL`. Manage
-GitLab and profiler tokens in Project settings; never paste tokens into chat.
-Tokens are encrypted on the backend. Authenticated endpoints require HTTPS except
+Git/profiler tokens in Project settings; Git MCP endpoint and permissions use ENV.
+Never paste tokens into chat. Saved tokens are encrypted on the backend. Authenticated endpoints require HTTPS except
 for localhost and literal loopback addresses. See the integration guide for setup.
 
 ## Connect your LLM
@@ -119,6 +119,27 @@ shown only as an explicitly unvalidated excerpt, never accepted as a finding. To
 Replace the analyzer in code with `Worker(settings, analyzer_factory=your_factory)`.
 See [analyzer configuration and custom graphs](docs/analyzer-extension.md).
 
+## Git MCP integration
+
+To connect any Git hosting system through MCP, install `.[mcp]` and configure:
+
+```dotenv
+GIT_MCP_URL=https://git-tools.example.com/mcp
+GIT_MCP_ALLOWED_TOOLS=["your_read_only_repository_tool"]
+GIT_MCP_TIMEOUT_SECONDS=60
+GIT_MCP_TOKEN=
+```
+
+Use `PERF_CHAT_EXECUTOR=profile-mcp` and LLM mode. The backend discovers schemas and
+builds arguments; no provider-specific API or manual argument map is required.
+Enter the repository reference, optional branch and optional Git access token in
+Project settings. A saved token is sent as Bearer to Git MCP, with priority over
+the ENV token. Active runs preserve their saved token snapshot. Git-only
+analysis needs no profiler Result ID or endpoint. Tokens stay in backend headers.
+The shared analyzer namespaces tools by server, validates calls and preserves raw
+evidence. Generic MCP responses do not prove immutable commit identity or profile
+linkage. See [Git MCP setup and limitations](docs/git-mcp.md).
+
 ## External execution infrastructure
 
 Implement `ExecutorGateway.step(run_id, task, cursor, answer)` and `cancel(run_id)`,
@@ -146,6 +167,7 @@ Regenerate schemas after changing contracts with `python scripts/export_contract
 - [Deployment guide](docs/deployment.md): installation, startup checks, addresses and storage.
 - [Integration and operations guide](docs/integration-guide.md): credentials, source
   context, profiler APIs, reusable agents, executor contracts and persistence behavior.
+- [Git MCP guide](docs/git-mcp.md): provider-neutral repository tools and ENV settings.
 - [Source context design](docs/source-context-plan.md): source enrichment and planning reviews.
 - [Project guide](AGENTS.md): architecture and development rules.
 - [Review notes](REVIEW.md): dynamic analyzer findings, fixes and validation.
