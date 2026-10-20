@@ -1,8 +1,12 @@
-# chats
+# IPA — Intelligent Performance Assistant
 
-A local workspace for defining performance optimization tasks through conversation
-and delegating execution to external infrastructure. Web and terminal clients
-share an API, conversation history and task state.
+IPA collects application optimization goals, constraints and acceptance criteria
+through conversation, and orchestrates analysis agents and external execution
+infrastructure. Web and terminal clients share an API, conversation history and
+task state.
+
+The Web interface uses the shorter name **Performance Assistant**. The Python
+package remains `perf_chat`, and the distribution remains `perf-chat`.
 
 Two LangGraph agents handle conversational task intake and structured specification extraction.
 A profile analyzer can inspect metrics through MCP and add read-only Git MCP or local Git
