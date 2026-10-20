@@ -13,6 +13,7 @@ from ..contracts import StrictModel
 from ..integrations.mcp_schema import validate_schema
 from ..runtime import check_deadline, execution_deadline
 from .context_builder import ContextBudgetExceeded, RequiredSourceOmitted
+from .context_contracts import AnalysisContext, AnalysisContextUpdate, ContextUpdateProposal
 from .contracts import AnalysisStep, Evidence, MCPTool, ProfileAnalysis
 from .evidence import evidence
 from .interpretation import EvidenceInterpreter
@@ -22,7 +23,7 @@ from .source_contracts import SourceContext, SourceLocation, SourceRequest
 
 
 class ToolDecision(StrictModel):
-    action: Literal["call", "source", "finish", "ask"]
+    action: Literal["call", "source", "finish", "ask", "update_context"]
     server: Literal["profiler", "git"] = "profiler"
     reason: str = Field(min_length=1, max_length=2000)
     tool: str | None = None
@@ -30,6 +31,7 @@ class ToolDecision(StrictModel):
     question: str = Field(default="", max_length=4000)
     locations: list[SourceLocation] = Field(default_factory=list, max_length=5)
     symbols: list[str] = Field(default_factory=list, max_length=3)
+    context_update: ContextUpdateProposal | None = None
 
 
 class StepState(TypedDict):
@@ -42,7 +44,8 @@ class StepState(TypedDict):
 class DynamicProfilerAnalyzer(EvidenceInterpreter):
     """Replace with any ProfileAnalyzer through Worker(analyzer_factory=...)."""
 
-    analyzer_id = "builtin-dynamic-mcp-v3"
+    analyzer_id = "builtin-dynamic-mcp-v4"
+    supports_context_updates = True
 
     def __init__(self, *args, max_calls=8, **kwargs):
         super().__init__(*args, **kwargs)
@@ -53,7 +56,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             "instructions/dynamic_analysis.md",
         ).read_text(encoding="utf-8")
         graph = StateGraph(StepState)
-        for phase in ("discover", "plan", "call", "source", "report", "format_report"):
+        for phase in ("discover", "refresh", "plan", "call", "source", "report", "format_report"):
             def node(state, method=getattr(self, "_" + phase)):
                 return {"step": method(
                     state["request"], state["checkpoint"], state["source_snapshot"],
@@ -61,7 +64,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             graph.add_node(phase, node)
             graph.add_edge(phase, END)
         graph.add_conditional_edges(START, lambda state: state["checkpoint"].get("phase", "discover"),
-                                    {name: name for name in ("discover", "plan", "call", "source", "report", "format_report")})
+                                    {name: name for name in ("discover", "refresh", "plan", "call", "source", "report", "format_report")})
         self.workflow = graph.compile()
 
     def _output(self, request, state, *, error=None, question=None, field="analysis_input",
@@ -87,12 +90,13 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             notes.append(error)
         report = ProfileAnalysis(
             status="needs_input" if question else "insufficient_data" if error else "completed",
-            request=request, demo=self.gateway.demo, analyzer="dynamic-mcp-v3",
+            request=request, demo=self.gateway.demo, analyzer="dynamic-mcp-v4",
             evidence=state.get("evidence", []), tool_catalog=state.get("catalog", []),
             git_tool_catalog=state.get("git_catalog", []),
             limitations=notes, open_questions=[question] if question else [],
             clarification_field=field, documentation=documentation, source_context=source_context,
             delivered_evidence_ids=sorted(delivered or []),
+            context_updates=state.get("context_updates", []), source_history=state.get("source_history", []),
             **(interpretation.model_dump() if interpretation else {}),
         )
         if error:
@@ -100,12 +104,31 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         return AnalysisStep(checkpoint=state, report=report)
 
     def _discover(self, request, state, snapshot):
-        tools = (self.gateway.list_tools()
-                 if request.result_id and getattr(self.gateway, "url", True) else [])
-        git_tools = self.git_gateway.list_tools() if self._git_enabled(request) else []
-        state.update(catalog=[tool.model_dump() for tool in tools], evidence=[], phase="plan",
-                     git_catalog=[tool.model_dump() for tool in git_tools],
-                     calls=0, rounds=0, answers=[], decisions=[], limitations=[], analysis_questions=[])
+        state.update(evidence=[], calls=0, rounds=0, answers=[], decisions=[], limitations=[],
+                     analysis_questions=[], context_updates=[], discovered_servers=[],
+                     active_profile_ids=[request.result_id] if request.result_id else [])
+        return self._refresh(request, state, snapshot)
+
+    def _refresh(self, request, state, snapshot):
+        profiler_enabled = bool(request.result_id and getattr(self.gateway, "url", True))
+        git_enabled = self._git_enabled(request)
+        tools = self.gateway.list_tools() if profiler_enabled else []
+        git_tools = self.git_gateway.list_tools() if git_enabled else []
+        discovered = state.setdefault("discovered_servers", [])
+        for key, server, enabled, catalog in [
+            ("catalog", "profiler", profiler_enabled, tools), ("git_catalog", "git", git_enabled, git_tools),
+        ]:
+            incoming = [tool.model_dump() for tool in catalog]
+            previous = state.get(key, [])
+            if not enabled:
+                state.setdefault(key, [])
+                continue
+            if server in discovered and sorted(incoming, key=lambda t: t["name"]) != sorted(previous, key=lambda t: t["name"]):
+                raise ValueError("MCP tool definitions changed; start a new run")
+            state[key] = incoming
+            if server not in discovered:
+                discovered.append(server)
+        state["phase"] = "plan"
         if git_tools:
             state["limitations"].append(
                 "Git MCP responses are untrusted repository evidence. Generic schemas do not "
@@ -119,8 +142,26 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
                     and (request.source is None or request.source.policy != "off"))
 
     @staticmethod
-    def _has_usable_evidence(state):
+    def _context(request):
+        return AnalysisContext(revision=request.context_revision, result_id=request.result_id,
+                               repository=request.repository, branch=request.branch)
+
+    def _active_evidence(self, request, state):
+        active = []
         for item in state.get("evidence", []):
+            scope = item.get("context")
+            if scope is None:
+                if request.context_revision == 0:
+                    active.append(item)
+                continue
+            if (scope["repository"], scope["branch"]) != (request.repository, request.branch):
+                continue
+            if item.get("server", "profiler") == "git" or scope["result_id"] in state.get("active_profile_ids", [request.result_id]):
+                active.append(item)
+        return active
+
+    def _has_usable_evidence(self, request, state):
+        for item in self._active_evidence(request, state):
             value = item["response"]
             if value is None:
                 continue
@@ -146,7 +187,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         if self.model is None:
             return self._output(request, state, error="Dynamic tool selection requires LLM mode.")
         tools = [{**item, "server": "profiler"} for item in state["catalog"]
-                 if item["name"] in self.gateway.allowed_tools]
+                 if request.result_id and item["name"] in self.gateway.allowed_tools]
         if self._git_enabled(request):
             tools.extend({**item, "server": "git"} for item in state.get("git_catalog", [])
                          if item["name"] in self.git_gateway.allowed_tools)
@@ -156,7 +197,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
                 "PROFILER_MCP_ALLOWED_TOOLS or GIT_MCP_ALLOWED_TOOLS."
             ))
         if state["calls"] >= self.max_calls or state["rounds"] >= self.max_calls * 2:
-            if not self._has_usable_evidence(state):
+            if not self._has_usable_evidence(request, state):
                 return self._output(request, state, error="Dynamic investigation budget exhausted.")
             state["limitations"].append("Investigation budget reached; report uses collected evidence only.")
             state["phase"] = "report"
@@ -166,7 +207,9 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             "source_snapshot": snapshot.model_dump() if snapshot else None,
             "remaining_source_calls": 5 - state.get("source_calls", 0),
             "schema": ToolDecision.model_json_schema(), "request": request.model_dump(),
-            "tools": tools, "evidence": state["evidence"],
+            "tools": tools, "evidence": self._active_evidence(request, state),
+            "context_updates": state.get("context_updates", []),
+            "active_profile_ids": state.get("active_profile_ids", []),
             "clarifications": self._clarification_context(state),
             "remaining_calls": self.max_calls - state["calls"],
             "argument_feedback": state.get("argument_feedback"),
@@ -181,6 +224,11 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         state.pop("argument_feedback", None)
         state["rounds"] += 1
         state.setdefault("decisions", []).append(decision.model_dump())
+        if decision.action == "update_context":
+            if decision.context_update is None:
+                raise ValueError("A typed context update proposal is required")
+            return AnalysisStep(checkpoint=state, context_update=decision.context_update,
+                                message="Analysis context update proposed.")
         if decision.action == "ask":
             if not decision.question.strip():
                 raise ValueError("An analysis question is required")
@@ -201,7 +249,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             state.update(phase="source", source_selection=selection)
             return AnalysisStep(checkpoint=state, message="Repository source query planned.")
         if decision.action == "finish":
-            if not self._has_usable_evidence(state):
+            if not self._has_usable_evidence(request, state):
                 return self._output(request, state, error="No usable MCP evidence was collected.")
             state["phase"] = "report"
             return AnalysisStep(checkpoint=state, message="Profiler evidence ready for interpretation.")
@@ -226,7 +274,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             )
         if any(e.get("server", "profiler") == decision.server
                and e["operation"] == decision.tool and e["arguments"] == decision.arguments
-               for e in state["evidence"]):
+               for e in self._active_evidence(request, state)):
             raise ValueError("Repeated identical profiler query")
         state.update(phase="call", decision=decision.model_dump())
         return AnalysisStep(checkpoint=state, message="MCP query planned and checkpointed.")
@@ -244,6 +292,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         check_deadline()
         item = evidence(tool.name, decision.arguments, data, len(state["evidence"]) + 1)
         item["server"] = decision.server
+        item["context"] = self._context(request).model_dump()
         state["evidence"].append(item)
         state["calls"] += 1
         state["phase"] = "plan"
@@ -329,8 +378,10 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         state.pop("unvalidated_interpretation", None)
         try:
             interpretation, delivered, notes = self.interpret(
-                request, [Evidence.model_validate(item) for item in state["evidence"]], docs, context,
-                analysis_context={"clarifications": self._clarification_context(state)},
+                request, [Evidence.model_validate(item) for item in self._active_evidence(request, state)], docs, context,
+                analysis_context={"clarifications": self._clarification_context(state),
+                                  "context_updates": state.get("context_updates", []),
+                                  "active_profile_ids": state.get("active_profile_ids", [])},
                 raw_output_sink=lambda text: state.update(raw_interpretation=text),
             )
         except (ContextBudgetExceeded, RequiredSourceOmitted):
@@ -363,7 +414,8 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         check_deadline()
         return AnalysisStep(checkpoint=state, report=report)
 
-    def step_analysis(self, request, *, checkpoint, answer=None, deadline=None, source_snapshot=None):
+    def step_analysis(self, request, *, checkpoint, answer=None, deadline=None, source_snapshot=None,
+                      context_updates=None):
         if source_snapshot is not None and (
             request.source is None
             or source_snapshot.repository != request.source.repository
@@ -383,12 +435,44 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         if state.get("git_connection_fingerprint", git_connection) != git_connection:
             return self._output(request, state, error="Git MCP endpoint or tool policy changed; start a new run.")
         state["git_connection_fingerprint"] = git_connection
+        invariants = hashlib.sha256(json.dumps({
+            "goal": request.goal, "metrics": request.metrics, "include_asm": request.include_asm,
+        }, sort_keys=True).encode()).hexdigest()
+        if state.get("invariant_identity", invariants) != invariants:
+            return self._output(request, state, error="Analysis request changed; start a new run.")
+        state["invariant_identity"] = invariants
+        current = self._context(request)
+        previous = AnalysisContext.model_validate(state.get("analysis_context", current.model_dump()))
+        accepted = [AnalysisContextUpdate.model_validate(item) for item in (context_updates or [])]
+        for update in accepted:
+            if update.current.revision <= previous.revision:
+                continue
+            if update.previous != previous or update.current.revision != previous.revision + 1:
+                raise ValueError("Context updates are not consecutive")
+            changed_source = (previous.repository, previous.branch) != (update.current.repository, update.current.branch)
+            if changed_source:
+                if state.get("source_context"):
+                    state.setdefault("source_history", []).append(state.pop("source_context"))
+                state.pop("source_request", None)
+                state["source_queries"] = []
+            state["active_profile_ids"] = (list(dict.fromkeys([
+                *state.get("active_profile_ids", []), update.current.result_id,
+            ])) if update.mode == "compare" else ([update.current.result_id] if update.current.result_id else []))
+            for key in ("pending_report", "raw_interpretation", "unvalidated_interpretation", "decision", "source_selection"):
+                state.pop(key, None)
+            state.update(phase="refresh", identity=None)
+            previous = update.current
+        if previous != current:
+            return self._output(request, state, error="Analysis context changed without an accepted update.")
+        state["analysis_context"] = current.model_dump()
+        if accepted:
+            state["context_updates"] = [item.model_dump() for item in accepted]
         identity = hashlib.sha256(json.dumps({
             "result_id": request.result_id, "goal": request.goal,
             "metrics": request.metrics, "include_asm": request.include_asm,
             "repository": request.repository, "branch": request.branch,
         }, sort_keys=True).encode()).hexdigest()
-        if state.get("identity", identity) != identity:
+        if state.get("identity") not in {None, identity}:
             return self._output(request, state, error="Analysis request changed; start a new run.")
         state["identity"] = identity
         if answer is not None:
@@ -427,6 +511,11 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
                                           source_snapshot=snapshot)
                 if step.report is not None:
                     return step.report
+                if step.context_update is not None:
+                    return self._output(request, step.checkpoint, question=(
+                        "A context update was proposed. Use the durable step_analysis lifecycle "
+                        "to confirm and persist it before continuing."
+                    )).report
                 checkpoint = step.checkpoint
             return self._output(request, checkpoint, error="Analysis step limit reached.").report
 

@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "expected_revision": {
+      "maximum": 7,
+      "minimum": 0,
+      "title": "Expected Revision",
+      "type": "integer"
+    },
+    "values": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "maxProperties": 3,
+      "minProperties": 1,
+      "propertyNames": {
+        "enum": [
+          "result_id",
+          "repository",
+          "branch"
+        ]
+      },
+      "title": "Values",
+      "type": "object"
+    },
+    "mode": {
+      "default": "replace",
+      "enum": [
+        "replace",
+        "compare"
+      ],
+      "title": "Mode",
+      "type": "string"
+    }
+  },
+  "required": [
+    "expected_revision",
+    "values"
+  ],
+  "title": "ContextUpdateProposal",
+  "type": "object"
+}

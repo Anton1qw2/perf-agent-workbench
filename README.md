@@ -118,6 +118,9 @@ evidence stays in run details. Unstructured or invalid model output is retained 
 shown only as an explicitly unvalidated excerpt, never accepted as a finding. Tokens remain transport-only. The old fixed analyzer has been removed.
 Replace the analyzer in code with `Worker(settings, analyzer_factory=your_factory)`.
 See [analyzer configuration and custom graphs](docs/analyzer-extension.md).
+During analysis, the agent can request a new profile, repository or branch and ask
+for confirmation before applying it. Versioned updates preserve history and budgets;
+replacement/comparison keep evidence scopes separate. See [context updates](docs/analyzer-context.md).
 
 ## Git MCP integration
 

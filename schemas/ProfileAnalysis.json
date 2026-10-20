@@ -1,8 +1,107 @@
 {
   "$defs": {
+    "AnalysisContext": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "default": 0,
+          "maximum": 8,
+          "minimum": 0,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "result_id": {
+          "default": "",
+          "maxLength": 4096,
+          "title": "Result Id",
+          "type": "string"
+        },
+        "repository": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repository"
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Branch"
+        }
+      },
+      "title": "AnalysisContext",
+      "type": "object"
+    },
+    "AnalysisContextUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "update_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Update Id",
+          "type": "string"
+        },
+        "reply_to": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Reply To",
+          "type": "string"
+        },
+        "previous": {
+          "$ref": "#/$defs/AnalysisContext"
+        },
+        "current": {
+          "$ref": "#/$defs/AnalysisContext"
+        },
+        "mode": {
+          "default": "replace",
+          "enum": [
+            "replace",
+            "compare"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "update_id",
+        "reply_to",
+        "previous",
+        "current"
+      ],
+      "title": "AnalysisContextUpdate",
+      "type": "object"
+    },
     "AnalysisRequest": {
       "additionalProperties": false,
       "properties": {
+        "context_revision": {
+          "default": 0,
+          "maximum": 8,
+          "minimum": 0,
+          "title": "Context Revision",
+          "type": "integer"
+        },
+        "context_feedback": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Context Feedback",
+          "type": "string"
+        },
         "result_id": {
           "default": "",
           "maxLength": 4096,
@@ -100,6 +199,17 @@
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalysisContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "server": {
           "default": "profiler",
@@ -640,6 +750,22 @@
         }
       ],
       "default": null
+    },
+    "context_updates": {
+      "items": {
+        "$ref": "#/$defs/AnalysisContextUpdate"
+      },
+      "maxItems": 8,
+      "title": "Context Updates",
+      "type": "array"
+    },
+    "source_history": {
+      "items": {
+        "$ref": "#/$defs/SourceContext"
+      },
+      "maxItems": 8,
+      "title": "Source History",
+      "type": "array"
     }
   },
   "required": [

@@ -131,6 +131,12 @@ def format_chat_report(report, *, unvalidated_output=None):
                 break
             lines.pop()
 
+    section("Context updates", [
+        f"v{item.current.revision}: {item.mode}; profile {_escape(item.current.result_id or 'not supplied', 200)}; "
+        f"repository {_escape(item.current.repository or 'not supplied', 200)}; "
+        f"branch {_escape(item.current.branch or 'HEAD', 100)}"
+        for item in report.context_updates
+    ])
     for heading, findings in [("Observations", report.observations), ("Hypotheses", report.hypotheses)]:
         section(heading, [f"{_escape(item.text)} ({', '.join(_escape(eid, 100) for eid in item.evidence_ids)})"
                           for item in findings])
@@ -149,6 +155,9 @@ def format_chat_report(report, *, unvalidated_output=None):
         if len(text) > len(excerpt) or len(raw) > 8000:
             shortened = True
     section("Evidence references", [f"{_escape(item.id, 100)} — {item.server}: {_escape(item.operation, 256)}"
+                                     + (f"; context v{item.context.revision}; profile "
+                                        f"{_escape(item.context.result_id or 'not supplied', 200)}"
+                                        if item.context else "")
                                      for item in report.evidence[:12]])
     if report.source_context and report.source_context.snapshot:
         snapshot = report.source_context.snapshot

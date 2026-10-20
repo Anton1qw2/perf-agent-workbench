@@ -117,6 +117,19 @@
   },
   "additionalProperties": false,
   "properties": {
+    "context_revision": {
+      "default": 0,
+      "maximum": 8,
+      "minimum": 0,
+      "title": "Context Revision",
+      "type": "integer"
+    },
+    "context_feedback": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Context Feedback",
+      "type": "string"
+    },
     "result_id": {
       "default": "",
       "maxLength": 4096,

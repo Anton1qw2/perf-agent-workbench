@@ -53,7 +53,7 @@ an explicit host-verified range; Git MCP output cannot replace it. Required user
 ranges are collected independently and prioritized over model-selected excerpts.
 `{"policy":"off"}` disables both local reads and Git MCP discovery/calls. To change
 a pinned local commit, start a new run. Explicit commits require `scope_repository`
-and `scope_ref` matching project settings. Source/profile-build linkage is unverified.
+and `scope_ref` matching the accepted run context. Source/profile-build linkage is unverified.
 
 Local preparation outcomes are persisted before analysis and reused after restart;
 missing objects never cause substitution with the current branch tip. Reads preserve
@@ -192,8 +192,10 @@ full task snapshots and raw analysis evidence are available from the run endpoin
 The conversation list returns only IDs and titles (`spec.summary`); use the individual
 conversation endpoint to load its history and full current task.
 Errors retain collected evidence and do not generate findings from failed calls.
-Profile and goal come from the current task snapshot, even if stale copies exist in
-`details.profile_analysis`. Each new clarification has a distinct, retry-stable ID.
+Goal comes from the immutable run task snapshot. Profile/repository/branch use its
+initial metadata or explicitly confirmed context updates, never stale copies in
+`details.profile_analysis`. See [versioned context updates](analyzer-context.md).
+Each new clarification has a distinct, retry-stable ID.
 Analysis calls share the remaining run deadline: MCP and model timeouts are clamped,
 and no subsequent call starts after expiry. Model calls use a total asynchronous
 timeout as well as HTTP phase timeouts. Both configured timeouts must be finite,

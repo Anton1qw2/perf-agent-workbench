@@ -15,8 +15,9 @@ The built-in LangGraph executes one node per durable worker step:
 
 ```text
 discover -> plan -> call/source -> plan -> ... -> report -> format_report
-              |                       |
-              +-> clarification       +-> source/context and interpretation
+              |
+              +-> clarification -> resume
+              +-> context proposal -> confirmation -> commit -> refresh -> plan
 ```
 
 The planner follows the packaged `instructions/dynamic_analysis.md`: establish context,
@@ -161,7 +162,7 @@ A custom graph can inspect `services.profiler.demo`.
 A replacement MCP gateway used by the built-in analyzer must implement `MCPToolGateway`,
 including a stable `configuration_fingerprint` for its endpoint and execution policy.
 Git and profiler fingerprints/catalogs are checkpointed separately. The current built-in
-identity is `builtin-dynamic-mcp-v3`; v2 active runs require restart. Git evidence carries
+identity is `builtin-dynamic-mcp-v4`; v3 active runs require restart. Git evidence carries
 `server="git"`, and the report retains `git_tool_catalog` separately.
 Use the MCP gateway's `call_tool` method for schema/policy enforcement and
 `PromptContextBuilder` for the common model input/citation budget. Custom graphs
@@ -192,6 +193,12 @@ measured evidence. Custom graphs must preserve equivalent clarification context.
 the existing structured clarification paths. Checkpoints must be JSON-serializable
 and free of credentials. `cancel(run_id)` is optional for releasing custom resources;
 worker cancellation remains cooperative between steps.
+
+Opt-in context updates preserve this boundary: set `supports_context_updates=True`
+and accept the optional `context_updates` keyword to propose typed changes after
+answered questions. Host confirmation and persistence are generic. See
+[context update contracts](analyzer-context.md) for the complete lifecycle and
+backward compatibility; legacy analyzer signatures receive no new kwargs.
 
 Source preparation is persisted by the executor before analysis. Use the supplied
 `source_snapshot`; never re-resolve an accepted source revision. A custom graph may

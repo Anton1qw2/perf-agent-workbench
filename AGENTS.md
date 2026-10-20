@@ -93,7 +93,7 @@ API and worker must agree on `PERF_CHAT_EXECUTOR`:
 Profiler, documentation and model calls share the run deadline. Reject late success
 and enforce total call timeouts. Use retry-stable clarification IDs, distinct for
 each new question. Preserve corrected analysis options across questions; current
-task summary/profile override stale copies in free-form details.
+run task summary and accepted profile context override stale copies in free-form details.
 
 ## Dynamic profiler analysis
 
@@ -105,6 +105,7 @@ worker step executes one graph node:
 discover -> plan -> call/source -> plan -> ... -> report -> format_report
               |
               +-> clarification -> resume
+              +-> context proposal -> confirmation -> commit -> refresh -> plan
 ```
 
 The analyzer receives an optional result ID, goal and optional repository/branch. It chooses
@@ -120,12 +121,23 @@ invariants when extending or replacing it:
   Decisions namespace calls with `server=profiler|git`; catalogs/fingerprints are
   pinned separately, while call/planning budgets are shared. Git evidence carries
   `server="git"` and reports retain `git_tool_catalog`. Empty allowlists deny calls.
-  `profile-demo` never connects to real Git MCP. Built-in identity is v3; v2 runs restart.
-- Known limitation, retained by user decision: a run started without a Result ID
-  does not discover profiler tools. A later plain-text Result ID answer is context
-  only; it cannot enable profiler calls in that run. Start a new run with Profile
-  supplied to combine profiler and Git evidence. Do not claim that this transition
-  works or silently change it as part of unrelated work. See `REVIEW.md` for the P2.
+  `profile-demo` never connects to real Git MCP. Built-in identity is v4; v3 runs restart.
+- Context updates use strict proposals for Result ID/repository/branch, explicit
+  correlated yes/no confirmation and a host-owned ledger (at most eight updates).
+  Preserve the original run task. Acceptance is a separate durable step before
+  source/discovery/model work. A Git-only run may add a profile after confirmation;
+  preserve prior evidence and scope rather than restarting or rewriting the task.
+  See `docs/analyzer-context.md` for lifecycle, null semantics and scope rules.
+- Custom analyzers receive the new `context_updates` keyword only when they declare
+  `supports_context_updates=True`. Questions/normalization stay in the analyzer;
+  Worker owns confirmation, validation, persistence and credential boundaries.
+  Confirmation replies must never enter the analyzer question/answer journal.
+- Refresh catalogs without resetting evidence, questions, counters or deadlines.
+  Compare every performed discovery against pinned definitions, including `[]`;
+  distinguish inactive services from empty actual catalogs. Tag evidence with its
+  immutable context. Replace excludes old profiles from active model input; compare
+  explicitly retains profiles in the same repository/ref scope. Preserve full audit
+  history and validate citations only against delivered active evidence.
 - Build arguments from discovered schemas, task context, evidence and answers.
   Do not hardcode profiler tool names or require an argument map for new servers.
   `include_asm` is a planning preference, not name-based authorization.
@@ -176,8 +188,11 @@ defaults to pinned `HEAD` when no branch is supplied.
 
 - Persist preparation outcomes (`resolved`, `unavailable`, `disabled`) before analysis
   and preserve them across cursor transitions. Never re-resolve an accepted revision.
-  Source options cannot override task repository/branch; explicit commits require
+  Source options cannot override the accepted repository/branch; explicit commits require
   matching `scope_repository` and `scope_ref`.
+- Explicit repository/ref context changes archive the previous snapshot/excerpts
+  and clear scoped commit/locations/symbols while preserving source policy. Freeze
+  a new snapshot before analysis; unchanged scopes must not be re-resolved.
 - Missing configuration is optional. Clarify required selection in chat. Collect
   required user-selected ranges independently of planner queries and prioritize
   them. Model excerpts use `origin=model_selection`; explicit model ranges use
@@ -382,6 +397,7 @@ If Windows temp permissions block pytest, use a fresh workspace directory with
 | Tokens/credentials | `tests/test_credentials.py` and Web tests; transport, non-echoing errors, active-run snapshots and cleanup |
 | Dynamic MCP/analyzer lifecycle | `tests/test_dynamic_analysis.py`, full Python suite and Web tests; schema bounds, policy pinning, retries, questions and custom factories |
 | Git MCP | `tests/test_git_mcp.py`; independent server routing, repository-only runs, ENV token isolation, schema/policy drift and deadlines |
+| Context updates | `tests/test_context_updates.py`; confirmation/replay, replace/compare provenance, refresh drift, cumulative budgets, scoped sources/tokens and legacy custom analyzers |
 | Source context | `tests/test_git_source.py`; immutable revisions, provenance, required selection and budgets |
 | Report formatting | `tests/test_report_formatting.py`; validation, bounded Markdown and checkpoint reconstruction |
 | UI layout | Browser inspection, collapsed sidebars and narrow screens |

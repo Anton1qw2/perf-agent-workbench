@@ -10,6 +10,11 @@ from perf_chat.contracts import (
     PerformanceResult,
     PerformanceTask,
 )
+from perf_chat.profiler_analysis_agent.context_contracts import (
+    AnalysisContext,
+    AnalysisContextUpdate,
+    ContextUpdateProposal,
+)
 from perf_chat.profiler_analysis_agent.contracts import (
     AnalysisRequest,
     AnalysisStep,
@@ -35,6 +40,9 @@ for model in [
     AnalysisRequest,
     ProfileAnalysis,
     AnalysisStep,
+    AnalysisContext,
+    AnalysisContextUpdate,
+    ContextUpdateProposal,
     ChatReport,
     MCPTool,
     SourceRequest,

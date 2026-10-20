@@ -61,7 +61,7 @@ def test_profile_worker_persists_dynamic_analysis_and_repository_context(tmp_pat
     run = drain_worker(worker, rid)
     assert run["status"] == "demo"
     analysis = run["cursor"]["analysis"]
-    assert analysis["analyzer"] == "dynamic-mcp-v3"
+    assert analysis["analyzer"] == "dynamic-mcp-v4"
     assert analysis["request"]["repository"] == "repo"
     assert analysis["source_context"]["snapshot"]["requested_ref"] == "HEAD"
 

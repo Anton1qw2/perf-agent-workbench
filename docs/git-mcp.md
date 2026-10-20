@@ -52,9 +52,10 @@ in Project settings. Describe the goal in chat and click Run. A repository-only
 task can use Git MCP without a profiler Result ID or `PROFILER_MCP_URL`. When both
 inputs and endpoints are configured, the planner can use both servers.
 
-Known limitation: if the run starts without a Result ID, providing one later in
-chat does not enable profiler tools in that same run. Start a new run with Profile
-supplied to combine both evidence sources. This behavior is retained by user decision.
+An analyzer can ask for a Result ID later and propose a context update. After explicit
+confirmation, the same run discovers profiler tools while retaining matching Git
+evidence. See [versioned context updates](analyzer-context.md) for replacement,
+comparison and source/token scope rules.
 
 The analyzer discovers permitted tool schemas, supplies known repository/revision
 context, and constructs arguments itself. Unknown essential values are requested
@@ -106,7 +107,7 @@ a GitLab REST adapter. Old saved GitLab tokens are never forwarded to Git MCP.
 The `credentials.git_token` API field now creates separate Git MCP credential
 records; it can also clear legacy bindings without migrating their secret values.
 The old standalone GitLab module remains import-compatible but is outside the
-active analysis path. Existing v2 analyzer runs must restart; saved reports remain
+active analysis path. Existing v3 analyzer runs must restart; saved reports remain
 readable with backward-compatible default fields. ENV token rotation takes effect
 on restart; this service credential is not a per-conversation credential snapshot.
 

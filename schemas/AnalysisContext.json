@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "revision": {
+      "default": 0,
+      "maximum": 8,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "result_id": {
+      "default": "",
+      "maxLength": 4096,
+      "title": "Result Id",
+      "type": "string"
+    },
+    "repository": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Repository"
+    },
+    "branch": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Branch"
+    }
+  },
+  "title": "AnalysisContext",
+  "type": "object"
+}

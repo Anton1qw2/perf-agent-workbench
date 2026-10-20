@@ -261,7 +261,7 @@ def test_budget_omits_optional_code_and_rejects_omitted_citation(repository):
     git("commit", "-m", "long utf8")
     model = SourceModel(cite_omitted=True)
     agent = analysis_agent(
-        DemoProfilerGateway(), model, source_gateway=gateway, max_input_bytes=10000
+        DemoProfilerGateway(), model, source_gateway=gateway, max_input_bytes=12000
     )
     report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=source()))
     assert model.payload is not None and model.payload["source_evidence"] == []
@@ -391,7 +391,7 @@ def test_required_source_omission_requests_narrower_range(repository):
     git("commit", "-m", "large source range")
     model = SourceModel()
     report = analysis_agent(
-        DemoProfilerGateway(), model, source_gateway=gateway, max_input_bytes=10000
+        DemoProfilerGateway(), model, source_gateway=gateway, max_input_bytes=11500
     ).analyze(
         AnalysisRequest(result_id="id", goal="Inspect", source=source(policy="required")),
     )

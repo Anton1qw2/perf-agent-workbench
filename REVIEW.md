@@ -259,3 +259,39 @@ with Profile supplied. No fix or regression coverage for that transition is clai
 The critic found no other confirmed defects and independently passed 31 Git MCP/
 credential tests. The main review reran 71 focused Python tests, 26 Web tests, Ruff
 and documentation checks successfully.
+
+## Versioned analyzer context: plan and implementation review
+
+Date: 2026-10-20. The user explicitly authorized replacing the previously retained
+Git-only to profiler restriction. The reviewed plan requirements are summarized
+below; the current public lifecycle is in [analyzer-context.md](docs/analyzer-context.md).
+The completed standalone plan was removed to avoid duplicating this review and guide.
+
+The plan critic required nondestructive catalog refresh, explicit replace/compare
+evidence scope, durable acceptance before side effects, strict patch/null semantics,
+separate confirmation/Q&A journals, immutable credential bindings and opt-in custom
+analyzer compatibility. These requirements are implemented. Original run tasks stay
+immutable; accepted contexts have an ordered host ledger and evidence provenance.
+
+Code review found two P2 defects, both fixed and regression-tested:
+
+- Empty catalog discovery incorrectly retained a previous catalog. The graph now
+  distinguishes inactive services from actual discovery, compares empty results too,
+  and rejects any change to a previously discovered pinned catalog.
+- Clearing Result ID without Git MCP re-entered legacy bootstrap outside the ledger.
+  Proposals leaving no available analysis entrypoint are rejected both before showing
+  confirmation and when accepting it; the original context and answer remain available.
+
+The final critic review confirmed both fixes and found no additional confirmed
+runtime, checkpoint, scope or credential defects. Validation: **191 Python tests**,
+**26 Web tests**, Ruff and `git diff --check` passed. Tests cover Git-only to profiler,
+replace/compare scoped citations, confirmation replay/staleness/decline, cumulative
+budgets, endpoint/catalog drift, required source re-selection, unchanged-commit branch
+changes, personal token destination binding and old/new custom analyzer signatures.
+Documentation links and Python examples passed the documentation audit; exported
+schemas were updated alongside their source contracts.
+
+No real provider/LLM context-update deployment was exercised. Generic Git MCP responses
+still cannot certify repository scope, commit/blob identity or profile-build linkage.
+The synchronous analyze() convenience path returns needs-input for a proposed update;
+durable worker/step_analysis integration is required to confirm and resume it.

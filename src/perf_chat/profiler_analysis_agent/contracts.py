@@ -4,10 +4,13 @@ from typing import Any, Literal, Protocol
 from pydantic import Field
 
 from ..contracts import StrictModel
+from .context_contracts import AnalysisContext, AnalysisContextUpdate, ContextUpdateProposal
 from .source_contracts import SourceContext, SourceRequest
 
 
 class AnalysisRequest(StrictModel):
+    context_revision: int = Field(default=0, ge=0, le=8)
+    context_feedback: str = Field(default="", max_length=2000)
     result_id: str = Field(default="", max_length=4096)
     goal: str = Field(min_length=1, max_length=20000)
     repository: str | None = Field(default=None, max_length=4096)
@@ -19,6 +22,7 @@ class AnalysisRequest(StrictModel):
 
 class Evidence(StrictModel):
     id: str
+    context: AnalysisContext | None = None
     server: Literal["profiler", "git"] = "profiler"
     operation: str = Field(min_length=1, max_length=256)
     arguments: dict[str, Any]
@@ -62,6 +66,8 @@ class ProfileAnalysis(StrictModel):
     git_tool_catalog: list[dict[str, Any]] = Field(default_factory=list)
     analyzer: str = "legacy"
     chat_report: ChatReport | None = None
+    context_updates: list[AnalysisContextUpdate] = Field(default_factory=list, max_length=8)
+    source_history: list[SourceContext] = Field(default_factory=list, max_length=8)
 
 
 
@@ -85,6 +91,7 @@ class AnalysisStep(StrictModel):
     checkpoint: dict[str, Any] = Field(default_factory=dict)
     message: str = "Analysis step completed."
     report: ProfileAnalysis | None = None
+    context_update: ContextUpdateProposal | None = None
 
 
 class ProfileAnalyzer(Protocol):
@@ -97,6 +104,7 @@ class ProfileAnalyzer(Protocol):
     def step_analysis(
         self, request: AnalysisRequest, *, checkpoint: dict[str, Any],
         answer: str | None = None, deadline: float | None = None, source_snapshot=None,
+        context_updates: list[AnalysisContextUpdate] | None = None,
     ) -> AnalysisStep: ...
 
 

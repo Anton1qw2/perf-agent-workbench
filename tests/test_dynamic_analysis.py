@@ -74,7 +74,7 @@ def test_dynamic_catalog_and_arbitrary_tool_names_with_evidence():
     assert report.evidence[0].operation == "inspect_session"
     assert report.tool_catalog[0]["name"] == "inspect_session"
     assert report.observations[0].evidence_ids == ["e1"]
-    assert report.analyzer == "dynamic-mcp-v3"
+    assert report.analyzer == "dynamic-mcp-v4"
     assert model.plans[1]["evidence"][0]["response"] == {"cycles": 17, "unit": "cycles"}
 
 
@@ -185,7 +185,7 @@ def test_worker_restart_and_plain_text_clarification_keep_evidence():
     assert len(calls) == 1
     clarifications = [{"question": "Which workload?", "answer": "Batch workload"}]
     assert model.plans[-1]["clarifications"] == clarifications
-    assert model.interpretations[-1]["analysis_context"] == {"clarifications": clarifications}
+    assert model.interpretations[-1]["analysis_context"]["clarifications"] == clarifications
     assert len(cursor["analysis"]["evidence"]) == 1
 
 
@@ -266,7 +266,7 @@ def test_real_worker_uses_builtin_dynamic_analyzer_after_restart(tmp_path, monke
             break
     assert run["status"] == "succeeded"
     assert len(question_ids) == 1 and len(calls) == 1
-    assert run["cursor"]["analysis"]["analyzer"] == "dynamic-mcp-v3"
+    assert run["cursor"]["analysis"]["analyzer"] == "dynamic-mcp-v4"
     assert len(run["cursor"]["analysis"]["evidence"]) == 1
 
 
@@ -470,9 +470,9 @@ def test_relative_clarification_answer_keeps_question_for_next_tool_selection():
                 break
     assert step.report.status == "completed"
     assert len(calls) == 1
-    assert model.interpretations[-1]["analysis_context"] == {
-        "clarifications": [{"question": question, "answer": "The second one"}],
-    }
+    assert model.interpretations[-1]["analysis_context"]["clarifications"] == [
+        {"question": question, "answer": "The second one"},
+    ]
 
 
 

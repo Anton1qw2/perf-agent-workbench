@@ -10,6 +10,7 @@ from .integrations.profiler_mcp import DemoProfilerGateway, MCPProfilerGateway
 from .llm import ChatModel
 from .orchestrator.agent import OrchestratorAgent
 from .orchestrator.graph import build_intake_graph
+from .profiler_analysis_agent.context_updates import effective_context
 from .profiler_analysis_agent.contracts import AnalysisServices
 from .profiler_analysis_agent.executor import ProfileAnalysisExecutor
 from .profiler_analysis_agent.factory import create_builtin_analyzer
@@ -43,7 +44,8 @@ class Worker:
 
     def _profile_executor(self, run):
         settings = self.settings
-        repository = run["task"]["target"].get("repository") or ""
+        context, _ = effective_context(PerformanceTask.model_validate(run["task"]), run["cursor"])
+        repository = context.repository or ""
         profiler_token = self.store.run_token(run, "profiler", settings.profiler_mcp_url)
         gateway = (
             DemoProfilerGateway()
