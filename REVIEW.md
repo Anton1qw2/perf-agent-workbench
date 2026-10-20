@@ -295,3 +295,53 @@ No real provider/LLM context-update deployment was exercised. Generic Git MCP re
 still cannot certify repository scope, commit/blob identity or profile-build linkage.
 The synchronous analyze() convenience path returns needs-input for a proposed update;
 durable worker/step_analysis integration is required to confirm and resume it.
+
+## Worker and analyzer bridge readability refactor
+
+Date: 2026-10-21. Scope: two implementation modules; public contracts and saved
+checkpoint formats are unchanged.
+
+Self-review identified mixed responsibilities in Worker.tick(): job dispatch,
+intake, cancellation, executor invocation and deadline enforcement were nested in
+one method. Private intake and execution handlers now keep dispatch/error handling
+separate from each job lifecycle. An unnecessary local source-gateway alias was
+also removed.
+
+The analyzer bridge embedded context-proposal validation and confirmation creation
+inside its main step method. A private proposal handler now groups that transition
+next to acceptance handling. It preserves opt-in checks, answer correlation,
+rejection feedback, checkpoint updates and the separate durable acceptance step.
+
+Manual diff review checked call ordering, exception handling, late-result rejection,
+legacy analyze()/step_analysis signatures and unchanged cursor fields. No independent
+critic review was performed for this refactor. Existing regression coverage was
+used; no new behavior or uncovered behavioral defect was introduced intentionally.
+
+Validation: 191 Python tests passed, including dynamic analysis, Git MCP, context
+updates, credentials, source and report formatting; all 26 Web state tests passed.
+Ruff (src, tests, scripts) and git diff --check passed. Real MCP/LLM deployments
+were not exercised. The analyzer step still owns substantial request/source
+validation; broader restructuring is deferred to keep this change reviewable.
+
+### Follow-up: clarification replies and terminal reports
+
+Date: 2026-10-21. A second bounded pass separates clarification reply application
+and terminal report formatting from ProfileAnalysisExecutor.step(). Reply parsing
+now uses early returns for plain-text Result IDs and analyzer answers, followed by
+explicit branches for options, source patches and individual JSON fields. This
+removes nested source-type checks while preserving shallow source merging and the
+special policy=off replacement rule. Invalid replies still checkpoint a new
+clarification with the same question text and retry-stable ID calculation.
+
+Terminal formatting and event/cursor construction now share one private method;
+needs-input reports remain in the clarification path. Unvalidated output handling,
+result status precedence, full report persistence and custom analyzer invocation
+are unchanged. Manual review compared these branches with the previous code.
+No independent critic review or real MCP/LLM deployment was performed.
+
+Validation rerun: 191 Python tests, 26 Web state tests, Ruff (src, tests, scripts)
+and git diff --check passed. Existing tests cover malformed options, corrected
+Result IDs, source disabling, context answer journals and report reconstruction.
+No new test was added because this pass did not identify an uncovered behavioral
+defect. Request/source validation remains in step(); public contracts, schemas
+and architecture documentation require no changes for these private extractions.

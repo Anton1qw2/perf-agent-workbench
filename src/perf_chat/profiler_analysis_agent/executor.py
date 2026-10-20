@@ -73,6 +73,70 @@ class ProfileAnalysisExecutor:
                      context_feedback="User confirmed the context update. Use the accepted context revision.")
         return ExecutionEvent(type="progress", message="Context update confirmed and saved."), saved
 
+    def _propose_context(
+        self, run_id, task, context, saved_cursor, step, *, supports_context_updates,
+    ):
+        """Checkpoint confirmation before any accepted-context side effects."""
+        try:
+            if (not supports_context_updates or not saved_cursor.get("context_reply_id")
+                    or step.report is not None):
+                raise ValueError("Context updates require an answered analyzer question and opt-in")
+            changed = step.context_update.apply(context)
+            self._validate_context_entrypoint(changed, task, saved_cursor)
+        except ValueError:
+            saved_cursor["context_feedback"] = "Context update rejected: unsupported, stale, unchanged or invalid proposal. Ask a new question if needed."
+            saved_cursor.pop("context_reply_id", None)
+            return ExecutionEvent(type="progress", message="Context update rejected; previous context retained."), {
+                **saved_cursor, "awaiting": None,
+            }
+        text = ("Confirm the analysis context update (" + step.context_update.mode + ").\n\n"
+                "```json\n" + json.dumps({"from": context.model_dump(), "to": changed.model_dump()},
+                                         indent=2, ensure_ascii=True) + "\n```\n\n"
+                "Reply yes to apply. Any other reply keeps the current context.")
+        return self._clarification(run_id, "context_confirmation", text, {
+            **saved_cursor, "pending_context_update": {
+                "proposal": step.context_update.model_dump(), "reply_to": saved_cursor["context_reply_id"],
+            },
+        })
+
+    @staticmethod
+    def _apply_answer(cursor, options, answer, ask, supported):
+        """Apply a clarification reply, or return a question for invalid JSON."""
+        awaiting = cursor["awaiting"]
+        if awaiting == "result_id":
+            options["result_id"] = answer.answer
+            return None
+        if awaiting == "analysis_input":
+            cursor["context_reply_id"] = answer.request_id
+            return None
+        try:
+            value = json.loads(answer.answer)
+        except json.JSONDecodeError:
+            return ask(awaiting, "Reply with valid JSON for " + awaiting + ".")
+        if awaiting == "options":
+            if not isinstance(value, dict):
+                return ask(
+                    "options", "Provide a JSON object with metrics and/or include_asm."
+                )
+            options.update({key: value for key, value in value.items() if key in supported})
+        elif awaiting == "source":
+            if not isinstance(value, dict):
+                return ask(
+                    "source", 'Provide a source options object, or {"policy":"off"}.'
+                )
+            current_source = options.get("source")
+            options["source"] = (
+                {"policy": "off"}
+                if value.get("policy") == "off"
+                else {
+                    **(current_source if isinstance(current_source, dict) else {}),
+                    **value,
+                }
+            )
+        else:
+            options[awaiting] = value
+        return None
+
     def step(self, run_id, task, cursor, answer=None, *, deadline=None):
         analyzer_id = getattr(
             self.agent, "analyzer_id", f"{type(self.agent).__module__}.{type(self.agent).__qualname__}",
@@ -120,38 +184,9 @@ class ProfileAnalysisExecutor:
             )
 
         if awaiting and answer:
-            if awaiting == "result_id":
-                options["result_id"] = answer.answer
-            elif awaiting == "analysis_input":
-                cursor["context_reply_id"] = answer.request_id
-            else:
-                try:
-                    value = json.loads(answer.answer)
-                except json.JSONDecodeError:
-                    return ask(awaiting, "Reply with valid JSON for " + awaiting + ".")
-                if awaiting == "options":
-                    if not isinstance(value, dict):
-                        return ask(
-                            "options", "Provide a JSON object with metrics and/or include_asm."
-                        )
-                    options.update({key: value for key, value in value.items() if key in supported})
-                else:
-                    if awaiting == "source" and not isinstance(value, dict):
-                        return ask(
-                            "source", 'Provide a source options object, or {"policy":"off"}.'
-                        )
-                    if awaiting == "source" and isinstance(value, dict):
-                        current_source = options.get("source")
-                        options["source"] = (
-                            {"policy": "off"}
-                            if value.get("policy") == "off"
-                            else {
-                                **(current_source if isinstance(current_source, dict) else {}),
-                                **value,
-                            }
-                        )
-                    else:
-                        options[awaiting] = value
+            clarification = self._apply_answer(cursor, options, answer, ask, supported)
+            if clarification is not None:
+                return clarification
         elif raw is not None and not isinstance(raw, dict) and not saved:
             return ask("options", "Provide analysis options as a JSON object, or {} for defaults.")
         if not options.get("result_id") and not (
@@ -263,27 +298,10 @@ class ProfileAnalysisExecutor:
             ))
             saved_cursor["analyzer_state"] = step.checkpoint
             if step.context_update is not None:
-                try:
-                    if (not extra or not saved_cursor.get("context_reply_id")
-                            or step.report is not None):
-                        raise ValueError("Context updates require an answered analyzer question and opt-in")
-                    changed = step.context_update.apply(context)
-                    self._validate_context_entrypoint(changed, task, saved_cursor)
-                except ValueError:
-                    saved_cursor["context_feedback"] = "Context update rejected: unsupported, stale, unchanged or invalid proposal. Ask a new question if needed."
-                    saved_cursor.pop("context_reply_id", None)
-                    return ExecutionEvent(type="progress", message="Context update rejected; previous context retained."), {
-                        **saved_cursor, "awaiting": None,
-                    }
-                text = ("Confirm the analysis context update (" + step.context_update.mode + ").\n\n"
-                        "```json\n" + json.dumps({"from": context.model_dump(), "to": changed.model_dump()},
-                                                 indent=2, ensure_ascii=True) + "\n```\n\n"
-                        "Reply yes to apply. Any other reply keeps the current context.")
-                return self._clarification(run_id, "context_confirmation", text, {
-                    **saved_cursor, "pending_context_update": {
-                        "proposal": step.context_update.model_dump(), "reply_to": saved_cursor["context_reply_id"],
-                    },
-                })
+                return self._propose_context(
+                    run_id, task, context, saved_cursor, step,
+                    supports_context_updates=bool(extra),
+                )
             if step.report is None:
                 return ExecutionEvent(type="progress", message=step.message), {
                     **saved_cursor, "stage": "analyze", "awaiting": None,
@@ -315,6 +333,11 @@ class ProfileAnalysisExecutor:
                     "clarification_attempt": cursor.get("clarification_attempt", 0),
                 },
             )
+        return self._complete(task, report, saved_cursor)
+
+    @staticmethod
+    def _complete(task, report, saved_cursor):
+        """Format and checkpoint a terminal report without another analyzer call."""
         analyzer_state = saved_cursor.get("analyzer_state", {})
         report.chat_report = format_chat_report(
             report, unvalidated_output=analyzer_state.get("raw_interpretation")
