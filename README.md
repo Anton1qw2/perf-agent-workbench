@@ -11,6 +11,8 @@ package remains `perf_chat`, and the distribution remains `perf-chat`.
 Two LangGraph agents handle conversational task intake and structured specification extraction.
 A profile analyzer can inspect metrics through MCP and add read-only Git MCP or local Git
 source context. The default executor is a **demo**; it performs no real optimization.
+The built-in analyzer's demo flag comes from `PERF_CHAT_EXECUTOR` configuration,
+never MCP metadata or response fields. See [analyzer configuration](docs/analyzer-extension.md).
 
 ## Quick start
 

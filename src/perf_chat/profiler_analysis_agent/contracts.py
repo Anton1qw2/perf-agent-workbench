@@ -79,7 +79,6 @@ class MCPTool(StrictModel):
 
 
 class MCPToolGateway(Protocol):
-    demo: bool
     allowed_tools: frozenset[str]
     configuration_fingerprint: str
 
@@ -118,3 +117,4 @@ class AnalysisServices:
     source: Any = None
     max_input_bytes: int = 120_000
     git: MCPToolGateway | None = None
+    demo: bool = False  # Host configuration, never inferred from MCP data or gateways.

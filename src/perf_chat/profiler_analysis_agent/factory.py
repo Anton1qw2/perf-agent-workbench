@@ -9,11 +9,11 @@ from .dynamic import DynamicProfilerAnalyzer
 def create_builtin_analyzer(services: AnalysisServices) -> ProfileAnalyzer:
     model = services.model
     docs_agent = None
-    if services.profiler.demo and model is None:
+    if services.demo and model is None:
         model = DemoAnalysisModel()
         docs_agent = ProfilerDocsAgent()
     return DynamicProfilerAnalyzer(
         services.profiler, model, docs_agent=docs_agent, source_gateway=services.source,
         max_input_bytes=services.max_input_bytes,
-        git_gateway=services.git,
+        git_gateway=services.git, demo=services.demo,
     )

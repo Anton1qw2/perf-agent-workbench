@@ -50,33 +50,35 @@ class Worker:
 
     def _profile_executor(self, run):
         settings = self.settings
+        demo = settings.executor_mode == "profile-demo"
         context, _ = effective_context(PerformanceTask.model_validate(run["task"]), run["cursor"])
         repository = context.repository or ""
-        profiler_token = self.store.run_token(run, "profiler", settings.profiler_mcp_url)
         gateway = (
             DemoProfilerGateway()
-            if settings.executor_mode == "profile-demo"
+            if demo
             else MCPProfilerGateway(
                 settings.profiler_mcp_url,
                 settings.profiler_mcp_timeout,
-                token=profiler_token,
+                token=self.store.run_token(run, "profiler", settings.profiler_mcp_url),
                 allowed_tools=settings.profiler_allowed_tools,
                 profile_arguments=settings.profiler_profile_arguments,
             )
         )
         source = GitSourceGateway.for_repository(settings.git_repositories, repository)
-        git_token = (self.store.run_token(run, "git_mcp", git_token_destination(
-            settings.git_mcp_url, repository,
-        )) if settings.git_mcp_url and settings.executor_mode == "profile-mcp" else "")
-        git = (MCPGitGateway(
-            settings.git_mcp_url, settings.git_mcp_timeout,
-            token=git_token or settings.git_mcp_token, allowed_tools=settings.git_allowed_tools,
-        ) if settings.git_mcp_url and settings.executor_mode == "profile-mcp" else None)
+        git = None
+        if settings.git_mcp_url and settings.executor_mode == "profile-mcp":
+            git_token = self.store.run_token(run, "git_mcp", git_token_destination(
+                settings.git_mcp_url, repository,
+            ))
+            git = MCPGitGateway(
+                settings.git_mcp_url, settings.git_mcp_timeout,
+                token=git_token or settings.git_mcp_token, allowed_tools=settings.git_allowed_tools,
+            )
         return ProfileAnalysisExecutor(
             self.analyzer_factory(AnalysisServices(
                 profiler=gateway, model=self.model, source=source,
                 analysis_id=run["id"], max_input_bytes=settings.model_input_bytes,
-                git=git,
+                git=git, demo=demo,
             )), source_gateway=source, git_gateway=git,
         )
 

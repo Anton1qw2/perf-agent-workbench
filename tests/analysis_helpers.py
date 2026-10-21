@@ -25,7 +25,8 @@ class PlanningModel(DemoAnalysisModel):
 
 def analysis_agent(gateway=None, model=None, **kwargs):
     return DynamicProfilerAnalyzer(
-        gateway or DemoProfilerGateway(), PlanningModel(model), docs_agent=ProfilerDocsAgent(), **kwargs,
+        gateway or DemoProfilerGateway(), PlanningModel(model), docs_agent=ProfilerDocsAgent(),
+        demo=True, **kwargs,
     )
 
 

@@ -122,12 +122,16 @@ To run the graph without a server or model:
 ```powershell
 $env:PERF_CHAT_MODE = "demo"
 $env:PERF_CHAT_EXECUTOR = "profile-demo"
-python -m perf_chat.profiler_analysis_agent --demo --result-id demo-1 --goal "Inspect CPU hotspots" --asm
+python -m perf_chat.profiler_analysis_agent --result-id demo-1 --goal "Inspect CPU hotspots" --asm
 ```
 
 This prints a JSON report with **synthetic evidence** using the same dynamic graph
-and a deterministic model fixture. All observations are explicitly synthetic. To use
-real LLM planning and interpretation, configure `PERF_CHAT_MODE=llm` and the existing
+and a deterministic model fixture. All observations are explicitly synthetic. For
+standalone analysis, set `PERF_CHAT_EXECUTOR` to `profile-demo` or `profile-mcp`;
+the default `demo` selects the separate demonstration executor, not this analyzer.
+The legacy `--demo` flag is accepted only when `profile-demo` is already configured;
+it cannot override the environment setting. MCP metadata never selects demo mode.
+For real LLM planning and interpretation, configure `PERF_CHAT_MODE=llm` and the existing
 model settings. To use the real MCP server:
 
 ```powershell

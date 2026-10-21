@@ -207,7 +207,7 @@ def test_source_snapshot_survives_analyzer_clarification_and_branch_move(reposit
     from perf_chat.profiler_analysis_agent import DynamicProfilerAnalyzer
     from perf_chat.profiler_docs_agent import ProfilerDocsAgent
     agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), PlanningModel(questions=["Which workload?"]),
-                                    docs_agent=ProfilerDocsAgent(), source_gateway=gateway)
+                                    docs_agent=ProfilerDocsAgent(), source_gateway=gateway, demo=True)
     executor = ProfileAnalysisExecutor(agent)
     task = PerformanceTask(
         summary="Inspect",
@@ -454,7 +454,7 @@ def test_planner_selects_source_and_receives_pinned_code_before_interpretation(r
 
     model = SourcePlanner()
     agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), model, docs_agent=ProfilerDocsAgent(),
-                                    source_gateway=gateway)
+                                    source_gateway=gateway, demo=True)
     report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect hot.c lines 1-3",
                                           repository="repo", branch="main"))
     assert report.status == "completed"
@@ -488,7 +488,7 @@ def test_model_source_cannot_replace_required_user_location(repository):
             return super().complete(system, payload, **kwargs)
 
     agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), OtherSourcePlanner(),
-                                    docs_agent=ProfilerDocsAgent(), source_gateway=gateway)
+                                    docs_agent=ProfilerDocsAgent(), source_gateway=gateway, demo=True)
     report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=SourceRequest(
         repository="repo", ref="main", policy="required",
         locations=[SourceLocation(path="missing-required.c", start_line=1, end_line=3)],
@@ -517,7 +517,7 @@ def test_model_selected_location_has_explicit_provenance(repository):
             return super().complete(system, payload, **kwargs)
 
     agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), SourcePlanner(),
-                                    docs_agent=ProfilerDocsAgent(), source_gateway=gateway)
+                                    docs_agent=ProfilerDocsAgent(), source_gateway=gateway, demo=True)
     report = agent.analyze(AnalysisRequest(result_id="id", goal="Inspect", source=SourceRequest(
         repository="repo", ref="main",
     )))

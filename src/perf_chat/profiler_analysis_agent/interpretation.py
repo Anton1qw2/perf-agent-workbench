@@ -37,8 +37,10 @@ class EvidenceInterpreter:
         max_input_bytes: int = 120_000,
         context_builder=None,
         git_gateway=None,
+        demo: bool = False,
     ):
         self.gateway = gateway
+        self.demo = demo
         self.model = model
         self.docs_agent = docs_agent or ProfilerDocsAgent(model)
         self.source_gateway = source_gateway
@@ -71,7 +73,7 @@ class EvidenceInterpreter:
                 "request": request.model_dump(),
                 "evidence": [item.model_dump() for item in evidence],
                 "documentation": documentation,
-                "demo": self.gateway.demo,
+                "demo": self.demo,
                 "analysis_context": analysis_context,
             },
             source_context,

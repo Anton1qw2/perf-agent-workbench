@@ -84,13 +84,13 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             "Tool arguments are selected from MCP schemas and task context; schema validation "
             "alone does not verify profile identity.",
         ])
-        if self.gateway.demo:
+        if self.demo:
             notes.append("Synthetic demo data; no real profile was read.")
         if error:
             notes.append(error)
         report = ProfileAnalysis(
             status="needs_input" if question else "insufficient_data" if error else "completed",
-            request=request, demo=self.gateway.demo, analyzer="dynamic-mcp-v4",
+            request=request, demo=self.demo, analyzer="dynamic-mcp-v4",
             evidence=state.get("evidence", []), tool_catalog=state.get("catalog", []),
             git_tool_catalog=state.get("git_catalog", []),
             limitations=notes, open_questions=[question] if question else [],
@@ -425,6 +425,10 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         ):
             raise ValueError("Source snapshot does not match the analysis request")
         state = json.loads(json.dumps(checkpoint, allow_nan=False))
+        saved_demo = state.get("demo_mode", state.get("pending_report", {}).get("demo", self.demo))
+        if saved_demo != self.demo:
+            return self._output(request, state, error="Analysis execution mode changed; start a new run.")
+        state["demo_mode"] = self.demo
         connection = self.gateway.configuration_fingerprint
         if state.get("connection_fingerprint", connection) != connection:
             return self._output(request, state, error=(

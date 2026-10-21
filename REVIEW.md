@@ -1,5 +1,46 @@
 # Code review notes
 
+## Host-owned analyzer execution mode
+
+Date: 2026-10-21. Implementation self-review; no independent critic or live MCP/LLM
+deployment validation was performed.
+
+The built-in analyzer previously read the gateway's demo attribute for fixture
+selection, interpretation context and report labels. Worker now derives
+`AnalysisServices.demo` from `PERF_CHAT_EXECUTOR=profile-demo` and passes it explicitly
+through the factory. MCP metadata and response fields cannot change that classification.
+The gateway protocol no longer requires demo metadata; direct analyzers default to
+False and synthetic fixtures pass True explicitly. Configuration is not proof that
+remote data are genuine measurements.
+
+Standalone analysis uses the same executor configuration. The legacy `--demo` flag
+cannot override it, and standalone use requires profile-demo or profile-mcp. Checkpoints
+pin the host mode and reject changes before further calls. For older checkpoints
+awaiting formatting, the saved report flag detects conflicting mode changes.
+
+Validation: 263 Python tests and 26 Web tests passed; Ruff, diff whitespace and local
+documentation-link checks passed. Contract schemas were regenerated without changes.
+New regressions contradict host mode with both gateway metadata and response data,
+reconstruct Worker between steps, check model payloads/report labels/result status,
+verify fixture selection, reject current/legacy checkpoint drift, and exercise
+standalone dotenv configuration and conflicting command-line flags.
+
+### Focused execution-mode refactoring
+
+Date: 2026-10-21. A delegated implementation agent performed a focused refactor
+and self-review; this was not an independent critic review or deployment validation.
+
+Removed the standalone CLI's duplicate MCP-endpoint check: `Settings.from_env()`
+already rejects profile-mcp without a profiler or Git endpoint. Worker now derives
+its demo boolean once for both gateway selection and AnalysisServices. Git gateway
+construction and token lookup share one explicit profile-mcp branch, and synthetic
+profiling no longer performs an unused profiler credential lookup. No additional
+abstraction or prompt changes were introduced. The host-owned mode, CLI restrictions,
+checkpoint pinning and saved-report compatibility remain in place.
+
+Validation: all 263 Python tests, 26 Web state tests, Ruff and diff whitespace checks
+passed after the refactor. No commit or push was performed.
+
 ## Assistant capability routing
 
 Date: 2026-10-21. Implementation self-review; no independent critic or live provider

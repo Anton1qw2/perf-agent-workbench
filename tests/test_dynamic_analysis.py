@@ -341,8 +341,91 @@ def test_default_dynamic_factory_is_selected_for_real_and_synthetic_mcp():
 
     assert isinstance(create_builtin_analyzer(AnalysisServices(profiler=gateway([]))),
                       DynamicProfilerAnalyzer)
-    assert isinstance(create_builtin_analyzer(AnalysisServices(profiler=DemoProfilerGateway())),
+    assert isinstance(create_builtin_analyzer(AnalysisServices(profiler=DemoProfilerGateway(), demo=True)),
                           DynamicProfilerAnalyzer)
+
+
+@pytest.mark.parametrize("executor_mode", ["profile-mcp", "profile-demo"])
+def test_worker_analysis_mode_comes_from_configuration_not_mcp(tmp_path, monkeypatch, executor_mode):
+    from perf_chat.profiler_analysis_agent.contracts import AnalysisServices
+    from perf_chat.profiler_analysis_agent.factory import create_builtin_analyzer
+
+    demo = executor_mode == "profile-demo"
+    calls = []
+    # Both gateway metadata and returned evidence contradict the host setting.
+    profiler = gateway(calls, response={"demo": not demo, "cycles": 17, "unit": "cycles"})
+    profiler.demo = not demo
+    model = Model()
+    services_seen = []
+
+    def factory(services):
+        assert isinstance(services, AnalysisServices)
+        services_seen.append(services.demo)
+        return create_builtin_analyzer(services)
+
+    monkeypatch.setattr("perf_chat.worker.ChatModel", lambda settings: model)
+    monkeypatch.setattr("perf_chat.worker.MCPProfilerGateway", lambda *args, **kwargs: profiler)
+    monkeypatch.setattr("perf_chat.worker.DemoProfilerGateway", lambda: profiler)
+    settings = Settings(db_path=str(tmp_path / "mode.db"), executor_mode=executor_mode,
+                        mode="llm", model="test", profiler_mcp_url="https://profiler.example/mcp")
+    worker = Worker(settings, analyzer_factory=factory)
+    cid = worker.store.create_conversation()["id"]
+    worker.store.update_spec(cid, PerformanceTask(
+        summary="Inspect CPU performance", target={"profile": "r7"},
+    ), 1)
+    rid = worker.store.start_run(cid, 2, uuid4().hex)["id"]
+    for _ in range(15):
+        worker = Worker(settings, analyzer_factory=factory)
+        assert worker.tick()
+        run = worker.store.run(rid)
+        if run["status"] in {"demo", "succeeded", "failed"}:
+            break
+    assert run["status"] == ("demo" if demo else "succeeded")
+    report = run["cursor"]["analysis"]
+    assert report["demo"] is demo
+    assert report["evidence"][0]["response"]["demo"] is not demo
+    assert ("SYNTHETIC DEMO" in report["chat_report"]["content"]) is demo
+    assert ("Synthetic demo data; no real profile was read." in report["limitations"]) is demo
+    assert model.interpretations[0]["demo"] is demo
+    assert services_seen and all(value is demo for value in services_seen)
+
+
+@pytest.mark.parametrize("demo", [False, True])
+def test_factory_selects_model_fixture_only_from_host_mode(demo):
+    from perf_chat.profiler_analysis_agent.contracts import AnalysisServices
+    from perf_chat.profiler_analysis_agent.demo import DemoAnalysisModel
+    from perf_chat.profiler_analysis_agent.factory import create_builtin_analyzer
+
+    profiler = gateway([])
+    profiler.demo = not demo
+    analyzer = create_builtin_analyzer(AnalysisServices(profiler=profiler, demo=demo))
+    assert analyzer.demo is demo
+    assert isinstance(analyzer.model, DemoAnalysisModel) is demo
+    if not demo:
+        assert analyzer.model is None
+
+
+@pytest.mark.parametrize("demo", [False, True])
+@pytest.mark.parametrize("stage", ["discovered", "legacy_report"])
+def test_changing_host_analysis_mode_rejects_checkpoint_before_mcp_calls(demo, stage):
+    calls = []
+    profiler = gateway(calls)
+    analyzer = DynamicProfilerAnalyzer(profiler, Model(), demo=demo)
+    state = analyzer.step_analysis(request(), checkpoint={}).checkpoint
+    if stage == "legacy_report":
+        for _ in range(8):
+            state = analyzer.step_analysis(request(), checkpoint=state).checkpoint
+            if state.get("phase") == "format_report":
+                break
+        assert state["phase"] == "format_report"
+        state.pop("demo_mode")
+    previous_calls = list(calls)
+    step = DynamicProfilerAnalyzer(profiler, Model(), demo=not demo).step_analysis(
+        request(), checkpoint=state,
+    )
+    assert step.report.status == "insufficient_data"
+    assert "Analysis execution mode changed; start a new run." in step.report.limitations
+    assert calls == previous_calls
 
 
 def test_request_identity_and_expired_steps_reject_late_success():

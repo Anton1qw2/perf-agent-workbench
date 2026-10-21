@@ -20,20 +20,24 @@ def main():
     parser.add_argument("--branch", help="Optional source revision; local default is HEAD")
     parser.add_argument("--metrics", nargs="*", default=[])
     parser.add_argument("--asm", action="store_true", help="Also request assembly detail")
-    parser.add_argument("--demo", action="store_true", help="Use explicitly synthetic data")
+    parser.add_argument("--demo", action="store_true",
+                        help="Deprecated; requires PERF_CHAT_EXECUTOR=profile-demo")
     parser.add_argument(
         "--source-json",
         help="SourceRequest JSON with registered repository alias, ref and source options",
     )
     args = parser.parse_args()
     settings = Settings.from_env()
+    if settings.executor_mode not in {"profile-demo", "profile-mcp"}:
+        parser.error("Set PERF_CHAT_EXECUTOR=profile-demo or profile-mcp for standalone analysis")
+    demo = settings.executor_mode == "profile-demo"
+    if args.demo and not demo:
+        parser.error("--demo cannot override PERF_CHAT_EXECUTOR; set it to profile-demo")
     if not args.result_id and not args.repository:
         parser.error("Provide --result-id or --repository")
-    if not args.demo and not (settings.profiler_mcp_url or settings.git_mcp_url):
-        parser.error("Set PROFILER_MCP_URL or GIT_MCP_URL, or use --demo")
     gateway = (
         DemoProfilerGateway()
-        if args.demo
+        if demo
         else MCPProfilerGateway(
             settings.profiler_mcp_url,
             settings.profiler_mcp_timeout,
@@ -48,7 +52,8 @@ def main():
         max_input_bytes=settings.model_input_bytes,
         git=MCPGitGateway(settings.git_mcp_url, settings.git_mcp_timeout,
                           token=settings.git_mcp_token, allowed_tools=settings.git_allowed_tools)
-        if settings.git_mcp_url and not args.demo else None,
+        if settings.git_mcp_url and not demo else None,
+        demo=demo,
     ))
     report = agent.analyze(
         AnalysisRequest(

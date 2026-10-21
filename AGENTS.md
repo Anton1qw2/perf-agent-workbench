@@ -172,6 +172,13 @@ API and worker must agree on `PERF_CHAT_EXECUTOR`:
 | `profile-mcp` | Real read-only profiler and/or Git MCP queries with bounded LLM planning |
 
 `PERF_CHAT_MODE` controls model use separately; it does not select an executor.
+The built-in analyzer derives its demo flag only from host configuration:
+`PERF_CHAT_EXECUTOR=profile-demo` sets `AnalysisServices.demo=True`; `profile-mcp`
+sets it to False. Gateway attributes and MCP response fields never select demo mode,
+the model fixture or the report flag. Pass this flag explicitly to programmatic
+analyzers; it defaults to False. Pin it in checkpoints and reject mode changes
+during a run. Standalone analysis uses the same executor setting; legacy `--demo`
+is accepted only with `profile-demo` and cannot override configuration.
 Profiler, documentation and model calls share the run deadline. Reject late success
 and enforce total call timeouts. Use retry-stable clarification IDs, distinct for
 each new question. Preserve corrected analysis options across questions; current

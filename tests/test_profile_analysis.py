@@ -77,7 +77,8 @@ def test_current_task_overrides_stale_freeform_analysis_details():
 
 
 def test_distinct_analyzer_questions_reject_late_previous_answers(tmp_path):
-    agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), PlanningModel(questions=["Which workload?", "Which interval?"]))
+    agent = DynamicProfilerAnalyzer(DemoProfilerGateway(), PlanningModel(questions=["Which workload?", "Which interval?"]),
+                                    demo=True)
     worker = Worker(Settings(db_path=str(tmp_path / "questions.db")), executor=ProfileAnalysisExecutor(agent))
     cid = worker.store.create_conversation()["id"]
     worker.store.update_spec(cid, PerformanceTask(summary="Inspect", target={"profile": "r7"}), 1)

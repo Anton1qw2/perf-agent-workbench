@@ -11,6 +11,14 @@ deterministic model fixture when LLM mode is off. The fixed analyzer and its old
 three-method gateway protocol have been removed. Import `DynamicProfilerAnalyzer`
 or use `create_builtin_analyzer(services)`; old analyzer checkpoints require a new run.
 
+Demo classification is host-owned: Worker derives `AnalysisServices.demo` only from
+`PERF_CHAT_EXECUTOR=profile-demo`. The built-in analyzer uses that flag for fixture
+selection, model context and report labeling; it never reads gateway demo attributes
+or MCP response fields to select execution mode. `profile-mcp` always supplies False,
+independently of `PERF_CHAT_MODE`. Checkpoints pin this flag; changing it requires a
+new run. Saved reports retain their original labels. This classification does not
+verify whether a remote service supplied genuine measurements.
+
 The built-in LangGraph executes one node per durable worker step:
 
 ```text
@@ -157,10 +165,13 @@ The factory is trusted backend code and receives services for the immutable run:
 - `source`: bounded local Git gateway using immutable source snapshots.
 - `git`: optional provider-neutral Git MCP gateway using backend ENV authentication.
 - `max_input_bytes`: model request budget.
+- `demo`: host-configured execution classification, True only for `profile-demo`.
 
 The synthetic demo gateway implements the same discovery/call protocol with a fixed
 fixture catalog and synthetic responses; it has no legacy named profiler methods.
-A custom graph can inspect `services.profiler.demo`.
+A custom graph should use `services.demo`, not gateway metadata. When constructing
+`DynamicProfilerAnalyzer` directly, pass `demo=True` explicitly for synthetic fixtures;
+the default is False. The gateway protocol does not require a demo attribute.
 A replacement MCP gateway used by the built-in analyzer must implement `MCPToolGateway`,
 including a stable `configuration_fingerprint` for its endpoint and execution policy.
 Git and profiler fingerprints/catalogs are checkpointed separately. The current built-in
