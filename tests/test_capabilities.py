@@ -30,6 +30,7 @@ def test_demo_capabilities_preserve_task_and_do_not_leak_into_task_history(tmp_p
     reply = conversation["messages"][-1]["content"]
     assert "No consultation experts are registered" in reply
     assert "synthetic" in reply
+    assert "Analysis direction: Performance analysis" in reply
     assert "Run" not in reply and "Provide" not in reply
     assert worker.store.intake_context(cid)["route"]["intent"] == "capabilities"
     worker = Worker(settings, experts=ExpertRegistry())

@@ -22,6 +22,7 @@ class IntakeState(TypedDict, total=False):
     consultation: dict
     pending_expert: dict | None
     deadline: float | None
+    runs: list[dict]
 
 
 def _response(state):
@@ -54,7 +55,8 @@ def build_intake_graph(
 
     def route(state):
         decision = route_intake(registry, model, state["messages"], state.get("pending_expert"),
-                                max_bytes=max_input_bytes)
+                                max_bytes=max_input_bytes, task=state["task"],
+                                runs=state.get("runs", ()), execution=execution_capabilities)
         route = decision.model_dump()
         return {"route": route, "pending_expert": retain_pending(
             state.get("pending_expert"), route, state["messages"],

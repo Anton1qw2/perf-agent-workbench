@@ -2,6 +2,8 @@
 
 import re
 
+from .catalog import work_catalog
+
 
 def _label(value, limit):
     text = " ".join(value.split())[:limit]
@@ -32,7 +34,12 @@ def capabilities_reply(registry, execution=None):
     else:
         lines.append("Execution availability depends on the worker configuration; "
                      "service connectivity is not verified by this description.")
-    catalog = registry.catalog(include_schemas=False)
+    catalog = work_catalog(registry, execution)
+    analysis = next(item for item in catalog if item["intent"] == "task")
+    lines.append(f"Analysis direction: {analysis['name']}. "
+                 "DynamicProfilerAnalyzer is the built-in analyzer for profile-demo and profile-mcp. "
+                 "Analysis uses the separate execution flow; it is not a consultation expert.")
+    catalog = [item for item in catalog if item["intent"] == "consultation"]
     if catalog:
         lines.append("Registered consultation experts (registration does not verify "
                      "their reference data or backend availability):\n\n" + "\n".join(

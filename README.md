@@ -58,6 +58,13 @@ Launch requires a task summary and no unresolved intake questions. The selected
 executor requests additional data during the run when needed; a profile analyzer
 may ask for a result ID after a repository-only launch. Reply in chat.
 
+With a selected profile or repository, performance/source questions about it default
+to preparing an analysis task. Explicit documentation or general-knowledge questions
+remain consultations and preserve the task. Analysis still requires **Run**; routing
+does not execute tools. Use `/task <request>` to force task intake or
+`/ask profiler_docs <question>` for documentation. See
+[contextual routing](docs/consultation-experts.md) for details and demo limitations.
+
 Chat messages support Markdown in Web and TUI. Web also renders tables and fenced
 code blocks; raw HTML is escaped and remote images are not loaded. The Web execution
 status panel shows two lines with internal scrolling; Copy copies its full text.

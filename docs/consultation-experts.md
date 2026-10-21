@@ -8,6 +8,41 @@ in the user's request. Routing is model-based in LLM mode and can misclassify in
 Use `/ask <expert_id> <question>` to select consultation explicitly, or `/task <text>`
 to select task intake. These are message prefixes, not new API endpoints or UI controls.
 
+## Contextual routing and the shared work catalog
+
+The routing catalog contains analysis/task preparation, assistant capabilities and
+all registered consultation experts, including their input schemas. It describes
+where requests go; it does not authorize tools. Analysis is not registered as a
+consultation expert: TaskAgent prepares its specification and Worker executes it
+through ExecutorGateway only after an explicit Run. Capability answers list the
+analysis direction separately from the consultation experts and describe the selected
+execution mode without asserting backend availability.
+
+The router receives the current task summary, open questions and selected
+profile/repository/branch, plus the latest run ID and status. Free-form task details,
+run cursors, report contents, credentials and backend endpoints are excluded from
+this context. The complete routing request still shares PERF_CHAT_MODEL_INPUT_BYTES.
+This context is for routing; it does not grant experts task/history access.
+
+With a selected profile or repository, questions about that selection's performance
+or source default to task intake. "Why is CPU usage high here?" with a profile or
+"Why is this function slow?" with a repository prepares analysis. Merely mentioning
+a profiler does not select documentation. Explicit requests for documentation or
+general facts stay consultations, and unrelated topics do not become analysis just
+because a target exists. The current selection takes precedence over older history.
+Mixed requests still require an explicit analysis/task request as well as consultation.
+Missing input is clarified in chat; no route automatically starts an analysis.
+
+Explicit commands take precedence. Short answers to an expert question continue
+that consultation; a new analysis request exits it. Existing execution clarification
+replies still use the resume endpoint and do not go through intake. LLM routing
+classifies intent semantically; demo mode uses conservative English/Russian phrases
+before the registered keyword matchers. It cannot interpret arbitrary paraphrases;
+use `/task` or `/ask` when a demo shortcut is insufficient. Missing documentation
+triggers still disable keyword-based expert selection.
+
+## Assistant capabilities
+
 Questions about the assistant itself, such as "What can you do?" or "Which agents
 are available?", use the `capabilities` intent. The orchestrator returns a host-owned
 description of supported functions, the worker's execution configuration and the

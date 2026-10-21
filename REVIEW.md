@@ -1,5 +1,40 @@
 # Code review notes
 
+## Contextual intake routing and shared work catalog
+
+Date: 2026-10-21. Implementation self-review; no independent critic or live model/MCP
+deployment validation was performed. Routing fixtures verify the request contract
+and isolation behavior, not arbitrary intent recognition by a deployed LLM.
+
+The router previously saw expert descriptions and history but no authoritative
+current target, making profile-analysis requests vulnerable to documentation routing.
+It now receives a shared catalog of task analysis, capabilities and consultation
+experts, plus whitelisted current summary/open questions/profile/repository/branch
+and latest run ID/status. Details, run cursors/results and transport configuration
+are not added to that context. Input-size enforcement and expert ContextPolicy remain.
+
+Selected-target performance/source questions default to analysis intake. Explicit
+documentation, general facts, unrelated topics, capabilities and commands retain
+their separate paths. Demo shortcuts prioritize explicit analysis and a bounded set
+of contextual questions over documentation keyword matches. New analysis exits pending
+expert questions; short replies preserve them. Analysis is not a consultation expert
+and no intake route launches a run. TaskAgent explicitly supports analysis tasks and
+retains the opaque MCP result_id rule. Capability answers now list analysis separately.
+
+Self-review tightened demo shortcuts so requests to find documentation do not become
+mixed task changes and source-specific questions are not classified as general facts
+solely because they start with "What does". Added an explicit instruction that only
+consultation catalog entries may populate expert_id.
+
+Validation: 288 Python tests, 26 Web state tests, Ruff, diff whitespace and local
+documentation-link checks passed. Coverage includes profile/repository readiness
+through the API with no automatic run or documentation invocation, explicit docs
+preserving task/version and expert isolation, missing-source clarification, stale
+history versus current selection, run-context whitelisting, router budgets, built-in
+direction rejection as an expert, and switching from pending docs after Worker restart.
+Updated AGENTS.md, README.md and the consultation extension guide. No public contract
+models or generated schemas changed. Execution clarification routing remains unchanged.
+
 ## Host-owned analyzer execution mode
 
 Date: 2026-10-21. Implementation self-review; no independent critic or live MCP/LLM

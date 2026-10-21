@@ -6,8 +6,9 @@
 and handing them to external execution infrastructure. Python package: `perf_chat`;
 distribution: `perf-chat`. Web and TUI share an API, history and task state.
 Two LangGraph intake agents handle user communication and structured task extraction.
-A bounded intake router selects task changes, backend consultations or assistant
-capability questions before task extraction.
+A bounded intake router uses the current agreed profile/repository context and a
+shared work catalog to select task changes, consultations or capability questions
+before task extraction. Analysis remains a durable execution path after Run.
 The built-in profiler analyzer investigates evidence; external optimization agents
 connect through `ExecutorGateway`.
 
@@ -23,7 +24,7 @@ Paths are relative to the repository root.
 | --- | --- |
 | `src/perf_chat/ui/web/` | Vanilla HTML/CSS/JavaScript; no build step |
 | `src/perf_chat/ui/tui.py`, `ui/client.py` | Textual UI and HTTP/SSE client |
-| `src/perf_chat/orchestrator/` | User-facing agent, intake routing/graph and host-owned capability descriptions |
+| `src/perf_chat/orchestrator/` | User-facing agent, contextual intake routing/graph, shared work catalog and capability descriptions |
 | `src/perf_chat/experts/` | Common consultation registry, context policy and default expert registrations |
 | `src/perf_chat/task_agent/` | Structured task extraction and partial updates |
 | `src/perf_chat/profiler_docs_agent/` | Documentation expert, full-document loader, `Perf.md`, `triggers.txt` |
@@ -97,6 +98,29 @@ existing task remain task/mixed intake. Capability replies need no repository or
 profile and must stay separate from task-readiness responses.
 
 Intake routes each message as task, consultation, mixed or capabilities before TaskAgent.
+`orchestrator/catalog.py` describes built-in analysis/task preparation, capabilities
+and registered consultation experts in one routing catalog. Analysis entries use
+the task path and explicit execution launch, never ExpertRegistry.consult().
+Show the analysis direction alongside consultation experts in capability answers
+without claiming the configured executor is the built-in analyzer in every mode.
+
+Router context whitelists the current task summary, open questions, selected
+profile/repository/branch and latest run ID/status. Do not send free-form task details,
+run results/cursors, tokens or backend endpoints as routing context. Current selection
+takes precedence over stale history. Context remains subject to the existing shared
+model input budget and does not expand an expert's ContextPolicy.
+
+With a selected profile or repository, questions about its performance or source
+default to analysis/task intake, even when phrased as explanations. An explicit
+request to investigate selected data is a task request. Explicit documentation,
+general-knowledge questions, unrelated topics, capabilities and `/ask` override that
+default; context alone never converts them into task changes. `/task` forces intake.
+Short expert-clarification replies stay consultations; new analysis requests exit
+pending expert conversations. Demo routing uses conservative phrases before keyword
+matchers; semantic classification requires LLM mode. Triggers do not override an
+analysis request. Missing execution input is requested in chat. Neither classification
+nor TaskAgent launches a run; preserve explicit Run and execution clarification resume.
+
 Pure consultations must preserve the complete task and spec_version, need no
 repository/profile and must not append task-readiness questions or Run suggestions.
 Mixed routing requires an explicit user request to change the task. Routing failures
@@ -486,6 +510,7 @@ If Windows temp permissions block pytest, use a fresh workspace directory with
 | --- | --- |
 | Tokens/credentials | `tests/test_credentials.py` and Web tests; transport, non-echoing errors, active-run snapshots and cleanup |
 | Consultation experts/intake routing | `tests/test_experts.py`, `tests/test_profiler_docs.py`, full Python suite and Web tests; task isolation, pending restart, replay ownership, context policy, budgets and failures |
+| Contextual analysis routing | `tests/test_context_routing.py` plus intake-routing checks above; current versus stale selection, shared catalog, explicit docs/commands, missing input, short expert replies, task readiness without auto-run, context whitelisting and budgets |
 | Capability routing/descriptions | `tests/test_capabilities.py` plus intake-routing checks above; task/version and history isolation, pending-question switching, command precedence, deadline/lease/replay safety, bounded metadata and secret-free configuration reporting |
 | Dynamic MCP/analyzer lifecycle | `tests/test_dynamic_analysis.py`, full Python suite and Web tests; schema bounds, policy pinning, retries, questions and custom factories |
 | Git MCP | `tests/test_git_mcp.py`; independent server routing, repository-only runs, ENV token isolation, schema/policy drift and deadlines |

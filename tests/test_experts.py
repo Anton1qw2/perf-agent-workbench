@@ -311,7 +311,8 @@ def test_profiler_uses_common_llm_catalog_even_when_demo_triggers_are_disabled(t
     model = RoutingModel({"intent": "consultation", "expert_id": "profiler_docs",
                           "inputs": {"question": "Explain Perf"}})
     decision = route_intake(registry, model, [{"role": "user", "content": "Explain Perf"}])
-    assert model.payloads[0]["experts"][0]["id"] == "profiler_docs"
+    assert any(item["id"] == "profiler_docs" and item["intent"] == "consultation"
+               for item in model.payloads[0]["work_catalog"])
     assert decision.expert_id == "profiler_docs"
     decision = route_intake(registry, model, [{"role": "user", "content": "/ask profiler_docs Explain Perf"}])
     assert decision.expert_id == "profiler_docs"

@@ -11,7 +11,8 @@ def default_experts(docs_agent: ProfilerDocsAgent | None = None):
     registry = ExpertRegistry()
     registry.register(ExpertDefinition(
         id="profiler_docs", name="Profiler documentation",
-        description="Answers questions using the complete local profiler documentation.",
+        description="Explains profiler usage and concepts using the complete local documentation. "
+                    "Does not analyze profiles, query measurements or execute performance tasks.",
         input_schema=DocumentationQuestion,
     ), factory=lambda services: (
         docs_agent if docs_agent is not None else ProfilerDocsAgent(services.model)

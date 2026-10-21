@@ -108,6 +108,7 @@ class Worker:
                 "messages": conv["messages"][:boundary],
                 "task_messages": self.store.task_messages(conv["id"], conv["messages"][:boundary]),
                 "pending_expert": pending,
+                "runs": conv["runs"],
                 "deadline": deadline,
             })
             try:
