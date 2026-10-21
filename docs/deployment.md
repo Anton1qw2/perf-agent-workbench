@@ -20,7 +20,7 @@ Windows PowerShell:
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
 Linux/macOS:
@@ -28,7 +28,7 @@ Linux/macOS:
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[dev]"
-cp .env.example .env
+[ -f .env ] || cp .env.example .env
 ```
 
 The portable installation resolves dependencies from `pyproject.toml`; it is not
@@ -45,10 +45,13 @@ Run from the project root, using the same environment for both processes:
 | Worker | `.\.venv\Scripts\python.exe -m perf_chat.worker` | `.venv/bin/python -m perf_chat.worker` |
 | Optional TUI | `.\.venv\Scripts\python.exe -m perf_chat.ui.tui` | `.venv/bin/python -m perf_chat.ui.tui` |
 
+The TUI opens the latest conversation by default. Pass `--conversation ID` to
+select a saved chat and `--url URL` to override PERF_CHAT_API_URL for that session.
+
 Open `http://127.0.0.1:8000/api/health`: expect `status=ok`, `mode=demo` and
 `executor=demo`. This checks the API, not worker liveness. Open the Web root, set
-Repository to `local/repo` and Branch to `main`, then describe a task. In the default
-demo these are task metadata; no real repository is required. Wait for the reply,
+Repository to `local/repo`, then describe a task. A branch is optional. In the default
+demo these settings are task metadata; no real repository is required. Wait for the reply,
 click Run and answer the executor's question. Expect a clearly labeled demo result.
 If messages remain queued, check that the worker is running with the same database.
 

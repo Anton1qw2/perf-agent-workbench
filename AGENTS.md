@@ -464,6 +464,12 @@ If Windows temp permissions block pytest, use a fresh workspace directory with
 Update `README.md` for setup/product behavior changes and the relevant integration
 guide for contract changes. Record actual critic findings, fixes and checks in
 `REVIEW.md`; do not claim reviews or deployment validation that did not occur.
+Keep README as the entry point, deployment.md for setup, integration-guide.md for
+backend contracts and the specialist guides for extension details. Link to the
+owning guide instead of duplicating startup commands or architecture diagrams.
+Consolidate completed plan/review summaries in REVIEW.md rather than retaining
+obsolete standalone plans. Empty Perf.md, trigger files, licenses, generated
+contract schemas and the import-compatible GitLab adapter are intentional files.
 See [deployment](docs/deployment.md), [integration](docs/integration-guide.md)
 and [custom analyzers](docs/analyzer-extension.md) for detailed configuration.
 See [Git MCP](docs/git-mcp.md) for provider-neutral repository access and its identity limitations.

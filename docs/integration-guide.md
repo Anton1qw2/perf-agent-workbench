@@ -1,5 +1,9 @@
 # Integration and operations guide
 
+For installation and process management, see [deployment](deployment.md). For
+product usage, see the [README](../README.md). This guide owns backend integration
+and persistence contracts; extension details live in the linked specialist guides.
+
 ## Connection settings and API tokens
 
 Project settings group Repository (provider-neutral URL/reference or local path,
@@ -71,9 +75,9 @@ cannot silently disappear; narrowing is requested if needed. Optional context ma
 be omitted. Only actually delivered evidence IDs may be cited.
 
 `PromptContextBuilder` supports an optional provider-specific `token_counter` and
-`max_tokens`; the default byte bound is not a token guarantee. The historical source
-design is retained in [source-context-plan.md](source-context-plan.md); current graph
-and replacement contracts are in [analyzer-extension.md](analyzer-extension.md).
+`max_tokens`; the default byte bound is not a token guarantee. Current graph and
+replacement contracts are in [analyzer-extension.md](analyzer-extension.md); accepted
+repository/ref changes are described in [context updates](analyzer-context.md).
 
 ## Dynamic profile analyzer
 
@@ -268,123 +272,6 @@ The expert does not execute Perf, read profiles, infer measurements or change la
 readiness. Web and TUI receive its guidance through the existing intake reply.
 Pure consultations preserve the task and do not append intake questions.
 
-## Overview
-
-This local MVP shares one API between Web and TUI clients. Two LangGraph agents
-build a performance task specification. Execution is delegated through
-`ExecutorGateway`. The default executor is a **demo** and performs no real optimization.
-
-## Structure
-
-```text
-src/perf_chat/
-  ui/                    # HTTP clients only
-    web/                 # HTML, CSS and JavaScript without a build step
-    tui.py               # Textual terminal interface
-    client.py            # TUI HTTP/SSE client
-  orchestrator/
-    agent.py             # User-facing conversation
-    graph.py             # LangGraph: specification -> validation -> reply
-  task_agent/
-    agent.py             # Structured PerformanceTask
-  contracts.py           # Versioned integration boundary
-  executor.py            # Demonstration ExecutorGateway
-  api.py                 # FastAPI, REST and SSE
-  worker.py              # Queue processing outside HTTP requests
-  store.py               # SQLite conversations, versions, jobs, runs and events
-  llm.py                 # OpenAI-compatible Chat Completions
-  config.py
-```
-
-## Installation and startup
-
-For platform-specific commands and listener configuration, see
-[the deployment guide](deployment.md).
-
-Requires Python 3.11+. Run commands **from this project directory**.
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-Copy-Item .env.example .env
-```
-
-To reproduce the validated environment, run
-`python -m pip install -r requirements.lock.txt` inside the virtual environment
-before the editable installation. The lock file was generated on Windows with Python 3.12.
-
-Use separate terminals with the same `.env` and working directory:
-
-```powershell
-# Terminal 1: API and Web
-.\.venv\Scripts\python.exe -m perf_chat.api
-
-# Terminal 2: agents and executor
-.\.venv\Scripts\python.exe -m perf_chat.worker
-
-# Terminal 3: optional TUI
-.\.venv\Scripts\python.exe -m perf_chat.ui.tui
-```
-
-Web: <http://127.0.0.1:8000>. OpenAPI: <http://127.0.0.1:8000/docs>.
-The TUI opens the latest conversation; use `--conversation ID` to select one explicitly.
-Web and TUI share conversations. The API defaults to loopback; its listener is
-configurable through `PERF_CHAT_API_HOST` and `PERF_CHAT_API_PORT`. This MVP serves
-one local user; authentication and user isolation are not implemented.
-
-## Agent modes
-
-`PERF_CHAT_MODE=demo` makes no model calls. It saves the task description from chat;
-meaningful clarification requires LLM mode. Demo mode tests integration rather than
-natural-language understanding. Messages also support `field=value` for compatibility.
-
-The right sidebar collapses to a narrow rail labeled "Project settings". Click the
-rail to expand it; use its header button or Esc to collapse it. It starts collapsed
-and remembers its state. The left "Chats" sidebar behaves the same way and remembers
-its state independently. Repository, Branch and Profile provide task context; connection
-settings and tokens are described above. In profile analysis modes, Profile supplies
-the MCP `result_id`; the original demo only stores the reference. Discuss the task,
-acceptance criteria and constraints in chat. Run and Cancel remain available in the
-header when the sidebar is hidden.
-
-`PERF_CHAT_MODE=llm` enables both intake agents through an OpenAI-compatible API:
-
-```dotenv
-PERF_CHAT_MODE=llm
-LLM_BASE_URL=https://your-provider.example/v1
-LLM_MODEL=your-model
-LLM_API_KEY=your-key
-```
-
-The provider must support `/chat/completions` and
-`response_format={"type":"json_object"}`. The schema is included in the prompt;
-Pydantic validates the output. An invalid response produces `job.failed` without
-changing the specification. The key stays in the backend/worker environment.
-Real provider calls require your configuration and have not been separately validated.
-LLM mode enables conversational intake and profile interpretation. The demo executor
-remains a demo until you connect the external execution infrastructure. Executor
-selection is configured separately as described above.
-
-## Demo
-
-Enter Repository and Branch in "Project settings" and save. Profile can be empty.
-Then send a chat message, for example:
-
-```text
-Reduce allocations when loading a large file while preserving behavior.
-Validate the result by comparing profiles for the same scenario.
-```
-
-Click "Run". The demo executor asks about the environment; reply with a normal
-message. The result has `status=demo`, without fabricated measurements.
-In LLM mode, the orchestrator asks questions relevant to the specific task.
-A numeric metric, baseline and benchmark are not universally required fields.
-
-TUI commands include `/run`, `/cancel`, `/new`, `/open ID`,
-`/set target.branch=feature/perf`, `/set target.repository=local/repo` and
-`/set target.profile=profile-id-7`. F2 toggles the context panel.
-A normal message while execution awaits clarification answers the executor's question.
-
 ## Executor integration contract
 
 `src/perf_chat/contracts.py` is the source of truth. Generate JSON Schema files
@@ -431,8 +318,11 @@ another worker acquires the lease.
   by a crash becomes available for another worker after ten minutes.
 - The intake graph completes each turn as a unit. Inputs and results are persisted
   at the application level; there are no checkpoints within an LLM turn, so a crash
-  repeats the turn. The model receives full history; summarization is not implemented.
-- Updating the specification increments its version. Existing runs retain their
+  repeats the turn. The router receives bounded chat history; TaskAgent excludes
+  classified consultations and expert portions of mixed replies. Experts receive
+  only their permitted context. History summarization is not implemented.
+- Task intake and explicit specification updates increment its version; pure
+  consultations preserve it. Existing runs retain their
   original snapshot. Each conversation allows one active run; its task can still be edited.
 - SSE replays events using `Last-Event-ID` or `after`. Events and state changes are
   atomic. The stream reports stages rather than individual LLM tokens.
@@ -457,19 +347,10 @@ another worker acquires the lease.
 
 ## Validation
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m ruff check src tests
-node --test tests/web_state.test.cjs
-```
-
-Tests cover the intake graph, the LLM adapter with mock transport, versions, run
-snapshots, clarifications, recovery, deduplication, cancellation and headless TUI
-startup. JavaScript tests require Node.js 18+; Web still needs no build step.
-
-Profiler API tokens require an HTTPS MCP URL; HTTP is allowed only for localhost or
-literal loopback addresses. This is checked when saving and sending tokens. Git MCP
-uses the same Bearer authentication and encrypted-token flow, with an optional ENV fallback.
+Use the commands and area-specific checks in the
+[project validation guide](../AGENTS.md#validation-and-documentation-maintenance).
+Tests cover intake, consultations, executor persistence, MCP/source boundaries,
+credentials, retries and Web state. Real services require deployment validation.
 
 ## Consultation extension
 

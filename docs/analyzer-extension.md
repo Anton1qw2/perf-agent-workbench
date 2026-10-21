@@ -40,8 +40,10 @@ It never proves correspondence with the profile build. Required-source user cons
 and explicitly disabled source remain effective; required user-selected ranges are
 collected independently of planner selections. Planner-selected excerpts carry
 `origin=model_selection` (and `resolution=model_location` for explicit ranges).
-They cannot replace required user-selected ranges. The planner cannot change repository,
-revision, authentication or permissions.
+They cannot replace required user-selected ranges. The planner cannot directly
+change repository, revision, authentication or permissions.
+It may propose a context update; the host validates and persists it only after
+explicit correlated confirmation. See [context updates](analyzer-context.md).
 A repository-only task uses Git MCP without a profile reference when that gateway
 is configured; otherwise the profile executor asks for a Result ID.
 The current transport opens a new MCP session for discovery/calls. Tools must accept

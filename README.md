@@ -21,7 +21,7 @@ Requires Python 3.11+ and Git. Clone this repository and run from its root
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
 The lock file was generated on Windows with Python 3.12. Start the API and worker
@@ -175,7 +175,7 @@ executes it, and SQLite persists tasks, runs and events. Clients use HTTP/SSE.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m ruff check src tests
+.\.venv\Scripts\python.exe -m ruff check src tests scripts
 node --test tests/web_state.test.cjs
 ```
 
@@ -188,41 +188,18 @@ Regenerate schemas after changing contracts with `python scripts/export_contract
 - [Integration and operations guide](docs/integration-guide.md): credentials, source
   context, profiler APIs, reusable agents, executor contracts and persistence behavior.
 - [Git MCP guide](docs/git-mcp.md): provider-neutral repository tools and ENV settings.
-- [Source context design](docs/source-context-plan.md): source enrichment and planning reviews.
+- [Local source context](docs/integration-guide.md#git-source-context): immutable source evidence and limits.
+- [Consultation experts](docs/consultation-experts.md): backend registration and context policies.
+- [Analyzer extensions](docs/analyzer-extension.md): replaceable analysis lifecycle.
+- [Context updates](docs/analyzer-context.md): confirmed changes during analysis.
 - [Project guide](AGENTS.md): architecture and development rules.
 - [Review notes](REVIEW.md): dynamic analyzer findings, fixes and validation.
 
 This MVP serves one local user without authentication or user isolation. Demo data
 is synthetic. Private MCP response formats and real provider/service integrations
-still require deployment validation. Perf documentation starts empty in
-`src/perf_chat/profiler_docs_agent/Perf.md`; replace its contents with your profiler's
-reference material. To change the demo documentation routing shortcuts, edit
-`src/perf_chat/profiler_docs_agent/triggers.txt`: one literal keyword or phrase per
-line, for example `perf`, `vtune` or `my profiler`. These keywords are demo routing
-shortcuts; LLM mode selects documentation through the same expert catalog as other
-consultations. Matching ignores case and uses
-word boundaries; blank lines and lines starting with `#` are ignored. Both files
-are reread without restarting. An empty, missing or unreadable trigger file disables
-the demo routing shortcut. These triggers do not invoke MCP tools or control the
-analyzer's documentation lookup during report generation.
-
-
-In LLM mode the documentation expert reads all of `Perf.md` for each question. Its
-context contains only that document, the question and optional version/platform.
-Other agents receive its concise answer and cited source metadata, not the document.
-Use a heading followed by a Markdown source link, for example:
-
-```markdown
-## CPU utilization
-[Any label url](https://docs.example.com/profiler/cpu-utilization)
-
-Your documentation text.
-```
-
-Subsections inherit the parent source unless they supply their own. Missing URLs
-are marked as local documentation. Replies cite section URLs, not Markdown lines.
-`PERF_CHAT_DOCS_MAX_INPUT_BYTES=2000000` limits the whole serialized documentation
-request separately from analysis context. An oversized request is rejected without
-truncation. This is a byte limit, not a token estimate: choose a model with enough
-context for the full document, instructions, question and answer. Demo mode reports
-that it cannot synthesize documentation answers. No index or embeddings are required.
+require deployment validation. The profiler knowledge base starts empty in
+`src/perf_chat/profiler_docs_agent/Perf.md`; replace it with your reference material.
+See [documentation setup and citations](docs/integration-guide.md#profiler-documentation-expert)
+for full-document limits and source links, and
+[expert routing](docs/consultation-experts.md#profiler-documentation-expert) for
+LLM selection and demo trigger configuration.

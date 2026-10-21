@@ -462,3 +462,46 @@ agent passed **232 Python tests**, **26 Web state tests**, Ruff, contract export
 schema consistency and documentation checks. AGENTS.md and the extension guide now
 document typed-input copying, expiry classification and pending-selection rules.
 No real provider/MCP compatibility validation is claimed.
+
+## Documentation consolidation and generated-file cleanup
+
+Date: 2026-10-21. Removed the completed source-context plan and standalone deployment
+review after retaining their historical conclusions here. Current behavior belongs
+to the integration, analyzer, context-update and deployment guides; the original
+documents remain available in Git history.
+
+- The source-context design's four critique iterations established typed provenance,
+  read-only Git access, a durable immutable freeze point, distinct identity/symbol
+  uncertainty, required user-selected evidence, a shared citation/input budget and
+  persisted unavailable/disabled outcomes. Its fixed metric/hotspot flow and rule
+  requiring a new run for every Result ID change were superseded by dynamic planning
+  and confirmed versioned context updates. Trusted build-manifest linkage remains
+  future work; no such deployment validation is claimed.
+- The 2026-10-18 deployment review's two iterations addressed configurable listeners,
+  portable setup, worker verification, encryption prerequisites, HTTPS examples and
+  dependency coverage. That historical report recorded a fresh Windows Python 3.12
+  installation, 97 Python tests, eight Web tests, Ruff/dependency checks and a live
+  demo API/worker workflow with a temporary database. Linux/macOS and real private
+  services were not exercised. These are historical results, not new checks.
+
+Removed the integration guide's duplicate README/setup/demo sections and obsolete
+intake diagram. Persistence notes now distinguish full routing history from filtered
+task input and consultation version preservation. README links to the owning guides;
+setup examples preserve existing .env files. Analyzer documentation now distinguishes
+direct scope changes from host-confirmed context proposals. No runtime code changed.
+
+Cleanup targets are only the obsolete documentation and reproducible build/pytest/
+Ruff caches. Local configuration, virtual environment, data, compatibility modules,
+schemas, licenses and knowledge-base files are preserved. Removed two historical
+documents and 67 generated files (51 build files, five pytest cache files and eleven
+Ruff cache files), after checking all resolved targets remain under the workspace
+and contain no reparse points. Validation passed for nine documents, 44 local
+links/anchors, six Python examples and git diff --check. No runtime suite was run
+for these documentation/generated-file-only changes; no new critic or deployment
+validation is claimed.
+
+Pre-publication recheck on 2026-10-21 passed the same document/link/Python checks
+and confirmed that the diff contains only Markdown changes and the two intended
+document deletions. All ten PowerShell fenced examples parsed successfully.
+The documented .env guard created a missing file and preserved an existing file
+in an isolated temporary workspace directory, which was removed afterward.
