@@ -43,6 +43,11 @@ Demo intake works without model credentials.
 
 ## Usage and configuration
 
+Ask "What can you do?" to see supported functions, the configured execution mode
+and registered consultation experts without changing the current task. This
+description does not verify backend connectivity. See
+[consultation experts](docs/consultation-experts.md) for routing and extension details.
+
 Provide either a Git Repository or a Profile in **Project settings**, describe the
 goal, constraints and acceptance criteria in chat, then click **Run**. Both inputs
 can be supplied together. Profile analysis uses Profile as the MCP `result_id` and

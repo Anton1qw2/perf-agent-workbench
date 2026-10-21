@@ -1,12 +1,33 @@
 # Backend consultation experts
 
-The main chat supports task intake, consultations and mixed requests. The intake
-router runs before TaskAgent. Consultation turns do not update the task or its
+The main chat supports task intake, consultations, mixed requests and capability
+questions. The intake router runs before TaskAgent. Consultation turns do not update the task or its
 version, do not require repository/profile settings and do not suggest Run.
 Mixed requests update the task and consult one expert; task changes must be explicit
 in the user's request. Routing is model-based in LLM mode and can misclassify intent.
 Use `/ask <expert_id> <question>` to select consultation explicitly, or `/task <text>`
 to select task intake. These are message prefixes, not new API endpoints or UI controls.
+
+Questions about the assistant itself, such as "What can you do?" or "Which agents
+are available?", use the `capabilities` intent. The orchestrator returns a host-owned
+description of supported functions, the worker's execution configuration and the
+currently registered experts. It does not call TaskAgent, an expert factory or a
+second model to generate this answer. Registration and configuration do not verify
+documentation availability, backend connectivity or real performance measurements.
+No endpoints, credentials or tool arguments are included in the description.
+Capability descriptions use `ExpertRegistry.catalog(include_schemas=False)` to
+read expert metadata without generating input schemas. The default `catalog()`
+continues to include schemas for LLM routing.
+
+Capability turns preserve the complete task and spec_version, need no repository
+or profile, and do not append readiness questions or Run suggestions. They clear
+pending expert questions and are excluded from subsequent TaskAgent history while
+remaining visible in chat and routing history. Expired capability turns discard
+their generated output and save only a host-owned timeout reply under the job lease.
+LLM routing recognizes paraphrases in any language; demo mode uses a small set of
+English and Russian phrases, including "What can you do?" and "Что ты умеешь?".
+Explicit `/ask` and `/task` commands take precedence; requests to perform actual
+analysis remain task intake.
 
 ## Register an expert
 

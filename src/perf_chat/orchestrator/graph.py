@@ -8,6 +8,7 @@ from ..experts import ExpertResponse, ExpertServices
 from ..experts.defaults import default_experts
 from ..task_agent.agent import TaskAgent
 from .agent import OrchestratorAgent
+from .capabilities import capabilities_reply
 from .routing import retain_pending, route_intake
 
 
@@ -15,7 +16,6 @@ class IntakeState(TypedDict, total=False):
     task: dict
     messages: list[dict]
     task_messages: list[dict]
-    missing_fields: list[str]
     reply: str
     task_reply: str
     route: dict
@@ -47,7 +47,7 @@ def _render_consultation(response):
 
 def build_intake_graph(
     task_agent: TaskAgent, orchestrator: OrchestratorAgent,
-    docs_agent=None, *, experts=None, max_input_bytes=120000,
+    docs_agent=None, *, experts=None, max_input_bytes=120000, execution_capabilities=None,
 ):
     registry = experts if experts is not None else default_experts(docs_agent)
     model = getattr(orchestrator, "model", None)
@@ -67,10 +67,6 @@ def build_intake_graph(
         task = task_agent.extract(PerformanceTask.model_validate(state["task"]),
                                   messages)
         return {"task": task.model_dump()}
-
-    def validate(state: IntakeState):
-        task = PerformanceTask.model_validate(state["task"])
-        return {"missing_fields": task.missing_fields()}
 
     def consult(state):
         decision = state["route"]
@@ -92,6 +88,8 @@ def build_intake_graph(
         return output
 
     def respond(state: IntakeState):
+        if state["route"]["intent"] == "capabilities":
+            return {"reply": capabilities_reply(registry, execution_capabilities)}
         if state["route"]["intent"] == "consultation":
             return {"reply": _render_consultation(_response(state))}
         task = PerformanceTask.model_validate(state["task"])
@@ -104,15 +102,14 @@ def build_intake_graph(
     graph = StateGraph(IntakeState)
     graph.add_node("route", route)
     graph.add_node("task_agent", specify)
-    graph.add_node("validate", validate)
     graph.add_node("orchestrator", respond)
     graph.add_node("consult", consult)
     graph.add_edge(START, "route")
     graph.add_conditional_edges("route", lambda state: state["route"]["intent"], {
         "task": "task_agent", "mixed": "task_agent", "consultation": "consult",
+        "capabilities": "orchestrator",
     })
-    graph.add_edge("task_agent", "validate")
-    graph.add_conditional_edges("validate", lambda state: state["route"]["intent"], {
+    graph.add_conditional_edges("task_agent", lambda state: state["route"]["intent"], {
         "task": "orchestrator", "mixed": "consult",
     })
     graph.add_edge("consult", "orchestrator")

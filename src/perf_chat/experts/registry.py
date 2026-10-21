@@ -27,11 +27,12 @@ class ExpertRegistry:
             raise ValueError("At most 32 consultation experts can be registered")
         self._entries[definition.id] = (definition, factory, matcher)
 
-    def catalog(self):
+    def catalog(self, *, include_schemas=True):
         return [
             {"id": definition.id, "name": definition.name,
              "description": definition.description,
-             "input_schema": definition.input_schema.model_json_schema()}
+             **({"input_schema": definition.input_schema.model_json_schema()}
+                if include_schemas else {})}
             for definition, _, _ in self._entries.values()
         ]
 

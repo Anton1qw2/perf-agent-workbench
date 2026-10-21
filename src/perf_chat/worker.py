@@ -34,6 +34,11 @@ class Worker:
             TaskAgent(model),
             OrchestratorAgent(model),
             experts=experts, max_input_bytes=settings.model_input_bytes,
+            execution_capabilities={
+                "mode": settings.executor_mode if executor is None else "external",
+                "profiler": bool(settings.profiler_mcp_url and settings.profiler_allowed_tools),
+                "git": bool(settings.git_mcp_url and settings.git_allowed_tools),
+            },
         )
         if executor is not None:
             self.executor = executor
@@ -106,16 +111,24 @@ class Worker:
             try:
                 check_deadline()
             except TimeoutError:
-                if output.get("route", {}).get("intent") != "consultation":
+                intent = output.get("route", {}).get("intent")
+                if intent not in {"consultation", "capabilities"}:
                     raise
-                # Record classification without accepting late expert data or new state.
-                message = "The consultation exceeded its deadline. No guidance was accepted. Please retry."
+                # Preserve classification while discarding all late generated output.
+                message = (
+                    "The capabilities request exceeded its deadline. Please retry."
+                    if intent == "capabilities" else
+                    "The consultation exceeded its deadline. No guidance was accepted. Please retry."
+                )
                 retained = retain_pending(pending, output["route"], conv["messages"][:boundary])
                 output = {
-                    "route": {"intent": "consultation", "expert_id": None, "inputs": {}},
-                    "consultation": {"expert_id": None, "status": "unavailable", "answer": message},
+                    "route": {"intent": intent, "expert_id": None, "inputs": {}},
                     "reply": message, "pending_expert": retained,
                 }
+                if intent == "consultation":
+                    output["consultation"] = {
+                        "expert_id": None, "status": "unavailable", "answer": message,
+                    }
         self.store.finish_intake(job, output)
 
     def _execute(self, job):

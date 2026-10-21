@@ -6,7 +6,8 @@
 and handing them to external execution infrastructure. Python package: `perf_chat`;
 distribution: `perf-chat`. Web and TUI share an API, history and task state.
 Two LangGraph intake agents handle user communication and structured task extraction.
-A bounded intake router selects task changes or backend consultation experts first.
+A bounded intake router selects task changes, backend consultations or assistant
+capability questions before task extraction.
 The built-in profiler analyzer investigates evidence; external optimization agents
 connect through `ExecutorGateway`.
 
@@ -22,7 +23,7 @@ Paths are relative to the repository root.
 | --- | --- |
 | `src/perf_chat/ui/web/` | Vanilla HTML/CSS/JavaScript; no build step |
 | `src/perf_chat/ui/tui.py`, `ui/client.py` | Textual UI and HTTP/SSE client |
-| `src/perf_chat/orchestrator/` | User-facing agent and intake graph |
+| `src/perf_chat/orchestrator/` | User-facing agent, intake routing/graph and host-owned capability descriptions |
 | `src/perf_chat/experts/` | Common consultation registry, context policy and default expert registrations |
 | `src/perf_chat/task_agent/` | Structured task extraction and partial updates |
 | `src/perf_chat/profiler_docs_agent/` | Documentation expert, full-document loader, `Perf.md`, `triggers.txt` |
@@ -72,7 +73,30 @@ Edit models, then regenerate schemas; do not maintain generated schemas independ
 
 ## Consultation experts
 
-Intake routes each message as task, consultation or mixed before TaskAgent.
+Assistant capability questions use the `capabilities` route and a host-owned
+orchestrator response based on supported functions, worker configuration and the
+registered experts. Do not call TaskAgent or experts, change task/spec_version,
+append readiness questions or suggest Run. Exclude capability turns from later
+task extraction, clear pending expert questions, and discard expired output under
+the intake deadline. Configuration does not establish connectivity or measurements;
+never include endpoints, credentials or tool arguments in capability descriptions.
+
+`orchestrator/routing.py` owns intent selection; `orchestrator/capabilities.py`
+renders the deterministic answer without an additional model call. Worker passes
+only the execution mode and MCP configuration flags. Use the actual expert registry,
+including an explicitly supplied replacement; do not claim default experts are
+registered when they are absent. Bound and Markdown-escape displayed expert metadata
+without constructing expert instances. Demo execution must be described as synthetic;
+MCP configuration and allowlists do not prove service connectivity, and a supplied
+external executor has no host-verified capability catalog.
+
+LLM routing recognizes capability questions by meaning, including paraphrases;
+demo routing supports a small set of English and Russian phrases. Explicit `/ask`
+and `/task` commands take precedence. Requests to perform analysis or change an
+existing task remain task/mixed intake. Capability replies need no repository or
+profile and must stay separate from task-readiness responses.
+
+Intake routes each message as task, consultation, mixed or capabilities before TaskAgent.
 Pure consultations must preserve the complete task and spec_version, need no
 repository/profile and must not append task-readiness questions or Run suggestions.
 Mixed routing requires an explicit user request to change the task. Routing failures
@@ -98,10 +122,12 @@ characters, sources to 64, and limitations to 16 entries of 2000 characters.
 These are code-owned limits, not new environment variables.
 
 Store owns internal intake_turns records: route, result, pending expert question
-and consultation message indices commit atomically with job completion and reply.
+and consultation/capability message indices commit atomically with job completion
+and reply.
 Check lease ownership before writing. Default missing records to no pending expert.
-Exclude classified consultation messages from later TaskAgent input while retaining
-them for routing and chat display. Do not put expert state into PerformanceTask.
+Exclude classified consultation and capability messages from later TaskAgent input
+while retaining them for routing and chat display. Do not put expert state into
+PerformanceTask.
 Expert needs_input questions survive Worker restart and never become execution
 ClarificationRequests. Existing API execution clarification priority is preserved.
 Retain pending expert questions on unavailable/routing failures; clear them on
@@ -453,6 +479,7 @@ If Windows temp permissions block pytest, use a fresh workspace directory with
 | --- | --- |
 | Tokens/credentials | `tests/test_credentials.py` and Web tests; transport, non-echoing errors, active-run snapshots and cleanup |
 | Consultation experts/intake routing | `tests/test_experts.py`, `tests/test_profiler_docs.py`, full Python suite and Web tests; task isolation, pending restart, replay ownership, context policy, budgets and failures |
+| Capability routing/descriptions | `tests/test_capabilities.py` plus intake-routing checks above; task/version and history isolation, pending-question switching, command precedence, deadline/lease/replay safety, bounded metadata and secret-free configuration reporting |
 | Dynamic MCP/analyzer lifecycle | `tests/test_dynamic_analysis.py`, full Python suite and Web tests; schema bounds, policy pinning, retries, questions and custom factories |
 | Git MCP | `tests/test_git_mcp.py`; independent server routing, repository-only runs, ENV token isolation, schema/policy drift and deadlines |
 | Context updates | `tests/test_context_updates.py`; confirmation/replay, replace/compare provenance, refresh drift, cumulative budgets, scoped sources/tokens and legacy custom analyzers |

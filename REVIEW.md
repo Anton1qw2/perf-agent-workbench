@@ -1,5 +1,50 @@
 # Code review notes
 
+## Assistant capability routing
+
+Date: 2026-10-21. Implementation self-review; no independent critic or live provider
+validation was performed.
+
+The router previously offered only task, consultation and mixed intents, so questions
+about the assistant could fall into an unavailable-expert response. Added capabilities
+routing and a deterministic orchestrator response using supported functions, worker
+execution configuration and the actual expert registry. Expert metadata is bounded and
+Markdown-escaped; factories and answer-generation models are not invoked.
+
+Self-review identified two related persistence requirements: capability turns must
+neither increment spec_version nor enter later task extraction, and late capability
+responses must be discarded while retaining their classification. Store and Worker
+now handle both under existing lease and deadline checks. Capabilities exit pending
+expert questions. Explicit commands and existing unknown-expert validation retain
+their behavior; configuration and registration do not establish backend connectivity.
+
+Validation: full Python suite (251 passed), Web state suite (26 passed), Ruff and
+Git diff whitespace checks passed. Contract schemas were regenerated with no changes;
+IntakeRoute is internal and is not part of the exported API/executor schemas.
+Regression coverage includes demo and model routing, task/history isolation across
+restart, pending-question switching, lease/replay ownership, expired output rejection,
+configuration reporting without endpoints/tokens and bounded expert descriptions.
+
+### Intake refactoring and redundant-code check
+
+Date: 2026-10-21. Self-review of capabilities, intake routing, expert registration
+and the Worker/Store integration; no independent critic was used.
+
+- Removed the intake graph's unused missing_fields output and validate node.
+  OrchestratorAgent still computes readiness for its response; Store still validates
+  persisted tasks and launch requirements at the existing boundary.
+- Capability rendering now requests registry metadata without generating expert input
+  schemas. The default schema-bearing catalog remains compatible with LLM routing.
+- Expired capability turns no longer save a fabricated consultation result. Their
+  route, timeout reply, message isolation and cleared pending question remain durable.
+- Combined duplicate route normalization and replaced demo punctuation regex handling
+  with string operations. Unknown-expert checks and explicit command precedence remain.
+
+Validation: 252 Python tests and 26 Web tests passed; Ruff and diff whitespace checks
+passed. Added a regression ensuring capability descriptions do not generate schemas,
+and asserted that expired capability records contain no consultation result.
+This was a focused intake review, not a claim that all repository code is unused-code-free.
+
 ## Dynamic MCP analyzer: three iterations
 
 Date: 2026-10-18. Scope: the built-in dynamic profiler analyzer, MCP gateway,

@@ -391,7 +391,7 @@ class Store:
             return json.loads(row[0]) if row else {}
 
     def task_messages(self, conversation_id, messages):
-        """Consultations stay in chat history but cannot become later task input."""
+        """Consultation and capability turns stay in chat, outside later task input."""
         with self.tx() as db:
             rows = db.execute(
                 "SELECT json_extract(data, '$.route.intent'), "
@@ -402,7 +402,7 @@ class Store:
         excluded, replacements = set(), {}
         for intent, indices, task_reply in rows:
             indices = json.loads(indices or "[]")
-            if intent == "consultation":
+            if intent in {"consultation", "capabilities"}:
                 excluded.update(indices)
             elif intent == "mixed" and indices and task_reply is not None:
                 replacements[indices[-1]] = task_reply
@@ -415,7 +415,7 @@ class Store:
                 return
             conv = self._get(db, "conversations", job["conversation_id"])
             route = output.get("route", {"intent": "task"})
-            if route["intent"] != "consultation":
+            if route["intent"] not in {"consultation", "capabilities"}:
                 task = PerformanceTask.model_validate(output["task"])
                 task.spec_version = conv["spec"]["spec_version"] + 1
                 conv["spec"] = task.model_dump()

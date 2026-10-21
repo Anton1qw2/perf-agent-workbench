@@ -160,7 +160,7 @@ class RoutingModel:
         return "Task response"
 
 
-@pytest.mark.parametrize("intent", ["consultation", "mixed", "task"])
+@pytest.mark.parametrize("intent", ["consultation", "mixed", "task", "capabilities"])
 def test_model_routes_before_task_extraction_and_calls_at_most_one_expert(intent):
     expert = HardwareExpert()
     model = RoutingModel({"intent": intent, "expert_id": "hardware",
@@ -178,11 +178,15 @@ def test_model_routes_before_task_extraction_and_calls_at_most_one_expert(intent
     graph = build_intake_graph(task_agent, OrchestratorAgent(model), experts=registry_for(expert))
     original = PerformanceTask(summary="Original goal").model_dump()
     result = graph.invoke({"task": original, "messages": [{"role": "user", "content": "Request"}]})
-    assert task_agent.calls == (0 if intent == "consultation" else 1)
-    assert len(expert.requests) == (0 if intent == "task" else 1)
-    if intent == "consultation":
+    assert task_agent.calls == (0 if intent in {"consultation", "capabilities"} else 1)
+    assert len(expert.requests) == (1 if intent in {"consultation", "mixed"} else 0)
+    if intent in {"consultation", "capabilities"}:
         assert result["task"] == original
         assert "Task response" not in result["reply"]
+    if intent == "capabilities":
+        assert len(model.payloads) == 1
+        assert "hardware" in result["reply"]
+        assert result["route"]["expert_id"] is None
     if intent == "mixed":
         assert "Hardware guidance" in result["reply"] and "Task response" in result["reply"]
 
