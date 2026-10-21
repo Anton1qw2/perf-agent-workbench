@@ -6,6 +6,7 @@
 and handing them to external execution infrastructure. Python package: `perf_chat`;
 distribution: `perf-chat`. Web and TUI share an API, history and task state.
 Two LangGraph intake agents handle user communication and structured task extraction.
+A bounded intake router selects task changes or backend consultation experts first.
 The built-in profiler analyzer investigates evidence; external optimization agents
 connect through `ExecutorGateway`.
 
@@ -22,6 +23,7 @@ Paths are relative to the repository root.
 | `src/perf_chat/ui/web/` | Vanilla HTML/CSS/JavaScript; no build step |
 | `src/perf_chat/ui/tui.py`, `ui/client.py` | Textual UI and HTTP/SSE client |
 | `src/perf_chat/orchestrator/` | User-facing agent and intake graph |
+| `src/perf_chat/experts/` | Common consultation registry, context policy and default expert registrations |
 | `src/perf_chat/task_agent/` | Structured task extraction and partial updates |
 | `src/perf_chat/profiler_docs_agent/` | Documentation expert, full-document loader, `Perf.md`, `triggers.txt` |
 | `src/perf_chat/profiler_analysis_agent/` | Dynamic graph, analysis/source contracts, context, reporting and executor bridge |
@@ -67,6 +69,60 @@ Edit models, then regenerate schemas; do not maintain generated schemas independ
   disconnect notice before reconnection.
 - Keep Web/TUI Markdown compatible. Escape raw HTML and reject unsafe links; Web
   must not load remote images from chat messages.
+
+## Consultation experts
+
+Intake routes each message as task, consultation or mixed before TaskAgent.
+Pure consultations must preserve the complete task and spec_version, need no
+repository/profile and must not append task-readiness questions or Run suggestions.
+Mixed routing requires an explicit user request to change the task. Routing failures
+leave the task unchanged. `/ask <expert_id> <question>` explicitly selects an expert;
+`/task <text>` explicitly resumes task intake. No UI registration or code loading.
+
+Register trusted factories through ExpertRegistry and Worker(..., experts=...).
+An explicit registry replaces defaults; start from default_experts() to retain
+profiler_docs. Definitions declare input schemas and ContextPolicy (task/history
+denied by default). Descriptions do not authorize tools. ExpertServices supplies
+the model; additional read-only services are explicit factory dependencies.
+Keep tokens transport-only. Experts are trusted Python code, not sandboxed plugins.
+Validate custom inputs once and pass a deep copy of the typed model. Use JSON dumps
+for size checks, never as a second validation input: aliases, AliasPath and computed
+fields do not necessarily round-trip through model_dump().
+
+One expert may be called per turn. The Worker intake deadline is 120 seconds;
+routing, extraction, expert services and response generation share it. Custom
+synchronous experts must bound their transports; reject late answers. Routing
+requests and expert inputs/context/results use PERF_CHAT_MODEL_INPUT_BYTES.
+The registry allows at most 32 experts. ExpertResponse bounds answers to 16000
+characters, sources to 64, and limitations to 16 entries of 2000 characters.
+These are code-owned limits, not new environment variables.
+
+Store owns internal intake_turns records: route, result, pending expert question
+and consultation message indices commit atomically with job completion and reply.
+Check lease ownership before writing. Default missing records to no pending expert.
+Exclude classified consultation messages from later TaskAgent input while retaining
+them for routing and chat display. Do not put expert state into PerformanceTask.
+Expert needs_input questions survive Worker restart and never become execution
+ClarificationRequests. Existing API execution clarification priority is preserved.
+Retain pending expert questions on unavailable/routing failures; clear them on
+completion or explicit conversation switching. Check the intake deadline again
+after the graph returns, before committing any task changes or assistant reply.
+For an expired pure consultation, discard all generated output and new questions;
+commit only a host-owned unavailable reply, classification/message indices and the
+previous pending question only for a continuing consultation, under the job lease.
+Use the same retain_pending rule in normal routing and expiry fallback: explicit
+/ask or a different selected expert clears the previous question even on timeout.
+This keeps failed consultations out
+of later task extraction. Expired task/mixed results must never update the task.
+
+ProfilerDocsAgent directly accepts ExpertRequest and returns the common ExpertResponse;
+there is no documentation-specific graph path or adapter. Its original
+ask(question, version, platform)/as_tool() APIs and analysis lookups remain compatible.
+Its default context policy and document synthesis use only question/version/platform.
+All experts appear in the LLM routing catalog; matchers are demo shortcuts only.
+Guidance, sources and
+user answers are not measured evidence or task agreement. See
+[consultation experts](docs/consultation-experts.md) for the extension contract.
 
 ## Durable execution
 
@@ -218,10 +274,11 @@ defaults to pinned `HEAD` when no branch is supplied.
 ## Profiler documentation expert
 
 `profiler_docs_agent/Perf.md` is replaceable UTF-8 reference data, initially empty.
-`triggers.txt` controls automatic intake routing: one literal keyword/phrase per
+`triggers.txt` controls the documentation expert's demo routing matcher: one literal keyword/phrase per
 line, case-insensitive word boundaries, ignoring blank lines and `#` comments.
-Read triggers each turn and documentation each lookup. Missing/unreadable/empty
-triggers disable automatic routing. Triggers do not authorize MCP calls. The expert
+Read triggers each demo turn and documentation each lookup. Missing/unreadable/empty
+triggers disable the demo shortcut. LLM routing uses the shared expert catalog and
+does not require keywords. Triggers do not authorize MCP calls. The expert
 is reusable through `ask()` / `as_tool()` and during analysis report generation.
 
 The expert receives only the full document, current question and optional
@@ -395,6 +452,7 @@ If Windows temp permissions block pytest, use a fresh workspace directory with
 | Changed area | Additional validation |
 | --- | --- |
 | Tokens/credentials | `tests/test_credentials.py` and Web tests; transport, non-echoing errors, active-run snapshots and cleanup |
+| Consultation experts/intake routing | `tests/test_experts.py`, `tests/test_profiler_docs.py`, full Python suite and Web tests; task isolation, pending restart, replay ownership, context policy, budgets and failures |
 | Dynamic MCP/analyzer lifecycle | `tests/test_dynamic_analysis.py`, full Python suite and Web tests; schema bounds, policy pinning, retries, questions and custom factories |
 | Git MCP | `tests/test_git_mcp.py`; independent server routing, repository-only runs, ENV token isolation, schema/policy drift and deadlines |
 | Context updates | `tests/test_context_updates.py`; confirmation/replay, replace/compare provenance, refresh drift, cumulative budgets, scoped sources/tokens and legacy custom analyzers |

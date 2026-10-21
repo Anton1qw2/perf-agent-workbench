@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "question": {
+      "maxLength": 16000,
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+    }
+  },
+  "required": [
+    "question"
+  ],
+  "title": "ExpertQuestion",
+  "type": "object"
+}

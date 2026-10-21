@@ -1,4 +1,4 @@
-"""Isolated documentation expert: the full document and question are its only context."""
+"""Registered documentation expert with a compatible direct lookup/tool API."""
 
 import json
 import re
@@ -8,6 +8,7 @@ from typing import Literal
 from markdown_it import MarkdownIt
 from pydantic import BaseModel, Field, StrictBool, ValidationError
 
+from ..experts.contracts import ExpertRequest, ExpertResponse, ExpertSource
 from ..llm import ChatModel
 from ..runtime import check_deadline
 from .retrieval import DocumentationSource, load_document
@@ -64,8 +65,20 @@ class ProfilerDocsAgent:
         if not 4096 <= self.max_input_bytes <= 20_000_000:
             raise ValueError("Documentation input budget must be between 4096 and 20000000 bytes")
 
-    def ask(self, question: str, version: str | None = None,
-            platform: str | None = None) -> DocumentationAnswer:
+    def ask(self, question: str | ExpertRequest, version: str | None = None,
+            platform: str | None = None) -> DocumentationAnswer | ExpertResponse:
+        """Serve registry requests and preserve the original direct documentation API."""
+        if isinstance(question, ExpertRequest):
+            answer = self._ask_documentation(**question.inputs.model_dump())
+            return ExpertResponse(
+                status={"found": "answered", "not_found": "not_found"}.get(answer.status, "unavailable"),
+                answer=answer.answer.rsplit("\n\nSources:\n", 1)[0] if answer.sources else answer.answer,
+                sources=[ExpertSource(title=source.title, url=source.url) for source in answer.sources],
+            )
+        return self._ask_documentation(question, version, platform)
+
+    def _ask_documentation(self, question: str, version: str | None = None,
+                           platform: str | None = None) -> DocumentationAnswer:
         """Send one complete snapshot, or return a limitation without a partial model call."""
         if not question.strip():
             raise ValueError("A documentation question is required")

@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "ExpertSource": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "ExpertSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "enum": [
+        "answered",
+        "needs_input",
+        "unavailable",
+        "not_found"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "answer": {
+      "maxLength": 16000,
+      "minLength": 1,
+      "title": "Answer",
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/ExpertSource"
+      },
+      "maxItems": 64,
+      "title": "Sources",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "maxLength": 2000,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Limitations",
+      "type": "array"
+    },
+    "question": {
+      "anyOf": [
+        {
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Question"
+    }
+  },
+  "required": [
+    "status",
+    "answer"
+  ],
+  "title": "ExpertResponse",
+  "type": "object"
+}

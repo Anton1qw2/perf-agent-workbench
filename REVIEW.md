@@ -345,3 +345,120 @@ Result IDs, source disabling, context answer journals and report reconstruction.
 No new test was added because this pass did not identify an uncovered behavioral
 defect. Request/source validation remains in step(); public contracts, schemas
 and architecture documentation require no changes for these private extractions.
+
+## Common backend consultation experts
+
+Date: 2026-10-21. Implemented a backend-only ExpertRegistry, typed requests/responses,
+input schemas, explicit ContextPolicy and trusted factories. Worker accepts experts=;
+default_experts() registers ProfilerDocsAgent through the same boundary as extensions.
+No registration UI, executable uploads or new deployment environment variables were added.
+
+Routing precedes extraction and distinguishes task, consultation and mixed requests.
+Consultations preserve the complete specification and version. Mixed requests require
+explicit task-change intent. One expert is called per turn, under the shared intake
+deadline and bounded input/context/result sizes. Unknown experts, malformed responses,
+router failures and late expert results produce non-echoing limitations.
+
+The user requested removing the documentation expert's special path. ProfilerDocsAgent
+now directly implements ask(ExpertRequest); no adapter, documentation-specific graph
+node/output or orchestration branch remains. LLM routing uses the common catalog and
+does not require profiler keywords. Optional matchers, including triggers.txt, are
+demo shortcuts only. Original ask(question, version, platform), as_tool(), document
+validation and analysis-time lookups remain compatible and covered by tests.
+
+Self-review identified and addressed these behavioral risks:
+
+- Leaving consultation messages in subsequent extraction could turn reference questions
+  or expert claims into task agreements. Store now records their indices and excludes
+  them from TaskAgent input; mixed assistant replies retain only their task portion.
+- In-memory pending questions would lose expert selection on Worker restart. Internal
+  intake_turns records commit selection, result and pending question atomically with
+  the reply and job completion. Lease checks suppress stale/duplicate commits.
+- Expert context could expose unnecessary task/history or mutate host state. Definitions
+  deny both by default, and explicitly permitted context is copied and size checked.
+- Invalid reconstructed response objects and whitespace-only answers could bypass useful
+  response checks. Common responses revalidate instances and reject blank text.
+
+Validation: 219 Python tests and 26 Web state tests passed. Ruff (src, tests, scripts),
+git diff --check, contract export, local documentation links and executable registry
+examples passed. New coverage includes routing/extraction separation, mixed replies,
+restart and replay, removed experts, custom schemas, source URL checks, context copies,
+size/deadline failures, private-error suppression and direct documentation compatibility.
+AGENTS.md, README and the integration/consultation guides describe the final design.
+
+Initial implementation validation did not include an independent critic; the subsequent
+three-iteration review is recorded below. No real provider/MCP deployment was performed.
+LLM intent classification can still be wrong; explicit /ask and /task messages avoid that choice.
+Trusted synchronous experts must implement bounded transports: the host rejects late
+results but cannot forcibly stop arbitrary Python. Older unclassified chat messages
+keep their prior interpretation; no historical task or conversation migration is claimed.
+
+### Three critic iterations
+
+Date: 2026-10-21. At the user's request, a separate read-only critic reviewed the
+implementation in three consecutive iterations. The main agent implemented fixes
+between iterations; no commits or pushes were made.
+
+1. **Iteration 1:** two confirmed P2 findings, both reproduced and fixed.
+   - Revalidating ExpertResponse did not revalidate an already constructed nested
+     ExpertSource. An unsafe URL could pass the registry and then fail graph
+     rendering instead of producing unavailable. ExpertSource now revalidates
+     instances too; a graph-level regression verifies rejection without task changes.
+   - A temporary router/expert failure cleared the pending question. Retrying a
+     short reply after restart could enter task extraction. Pending consultation is
+     now retained on unavailable/routing failures and cleared on completion or
+     explicit task/expert switching. Regressions cover both failure sources and
+     restart/retry. Main-agent focused validation: 37 tests and Ruff passed.
+2. **Iteration 2:** the critic verified the first fixes and independently passed
+   37 focused tests. Two additional P2 findings were reproduced and fixed.
+   - Worker accepted a graph result returned after the intake deadline. A final
+     check_deadline() now runs inside the deadline scope before persistence; a
+     regression proves neither late task updates nor late replies are committed.
+   - The limitations item-length bound existed only in a Python validator and
+     was absent from the JSON schema. It is now a declarative Annotated string
+     constraint; schemas were regenerated and a boundary/schema regression added.
+     Main-agent focused validation: 39 tests and Ruff passed.
+3. **Iteration 3:** the critic found no new confirmed runtime or compatibility
+   defects. It independently passed 39 focused tests, matched all three exported
+   expert schemas to model_json_schema(), and passed git diff --check. It checked
+   deadline enforcement, nested sources, pending durability, task-history isolation,
+   Store changes and the direct documentation ask()/as_tool() APIs.
+
+Final main-agent validation: **224 Python tests**, **26 Web state tests**, Ruff
+(src, tests, scripts), contract export and git diff --check passed. The LF/CRLF
+notice for README is informational. The remaining deployment/LLM-classification
+and synchronous transport limitations above still apply; no real provider test
+is claimed by either reviewer.
+
+### Two-critic consensus before publication
+
+Date: 2026-10-21. At the user's request, two separate read-only critics reviewed
+the complete pending feature, exchanged findings and independently reproduced each
+other's scenarios. They agreed on two additional P2 defects:
+
+- Custom input models were validated, dumped and then revalidated. Aliases could
+  change names during serialization, so schema-valid inputs never reached the
+  expert. ExpertRequest now receives validated.model_copy(deep=True); JSON dumps
+  serve only budget/context checks. Regressions cover ordinary aliases, different
+  validation/serialization aliases, AliasPath and computed fields.
+- Rejecting an expired consultation through the generic job-failure path left its
+  messages unclassified. A later task request could import the earlier /ask or
+  clarification reply into task notes. Pure consultation expiry now discards all
+  generated data and commits only a host-owned unavailable reply and classification
+  under the existing lease check. Task/mixed expiry still rejects task/reply changes.
+
+Their verification found an intermediate regression in the initial expiry fix:
+unconditionally restoring the previous pending question could revive an old expert
+after explicit selection timed out. A shared retain_pending() rule now governs both
+normal routing and expiry. It retains only continuing consultations and clears old
+questions on explicit same/different /ask or expert-ID switching; late expert pending
+state is never accepted. Tests cover timeout switching and continued questions across
+restart, plus exclusion from later task intake.
+
+Both critics approved the corrected diff by consensus, found no additional confirmed
+defects and independently passed **47 focused tests** and git diff --check. Lease
+ownership and stale/duplicate commit guards remain in Store.finish_intake. The main
+agent passed **232 Python tests**, **26 Web state tests**, Ruff, contract export,
+schema consistency and documentation checks. AGENTS.md and the extension guide now
+document typed-input copying, expiry classification and pending-selection rules.
+No real provider/MCP compatibility validation is claimed.

@@ -108,6 +108,19 @@ configuration precedence, container networking and troubleshooting. LLM mode ena
 intake and profile interpretation; `PERF_CHAT_EXECUTOR` separately selects execution
 and defaults to `demo`. Keep keys out of chat and version control.
 
+## Consultation experts
+
+The main chat separates reference questions from optimization task intake.
+Consultations do not change the task or require repository/profile settings.
+The default expert answers profiler documentation questions; backend code can add
+hardware or other experts through ExpertRegistry and Worker(..., experts=...).
+Use `/ask <expert_id> <question>` for explicit selection and `/task <text>` to return
+to task intake. In LLM mode routing also uses expert descriptions and conversation
+context. Pending expert questions survive Worker restart. Guidance does not establish
+measurements or agreement to change a task. No registration UI is included.
+See [backend consultation experts](docs/consultation-experts.md) for a working
+registration example, context policies, limits and retry requirements.
+
 ## Replaceable profile analyzer
 
 In `profile-mcp` mode, the built-in analyzer discovers MCP tools dynamically and uses
@@ -183,12 +196,14 @@ This MVP serves one local user without authentication or user isolation. Demo da
 is synthetic. Private MCP response formats and real provider/service integrations
 still require deployment validation. Perf documentation starts empty in
 `src/perf_chat/profiler_docs_agent/Perf.md`; replace its contents with your profiler's
-reference material. To change when chat consults documentation, edit
+reference material. To change the demo documentation routing shortcuts, edit
 `src/perf_chat/profiler_docs_agent/triggers.txt`: one literal keyword or phrase per
-line, for example `perf`, `vtune` or `my profiler`. Matching ignores case and uses
+line, for example `perf`, `vtune` or `my profiler`. These keywords are demo routing
+shortcuts; LLM mode selects documentation through the same expert catalog as other
+consultations. Matching ignores case and uses
 word boundaries; blank lines and lines starting with `#` are ignored. Both files
 are reread without restarting. An empty, missing or unreadable trigger file disables
-automatic chat lookups. These triggers do not invoke MCP tools or control the
+the demo routing shortcut. These triggers do not invoke MCP tools or control the
 analyzer's documentation lookup during report generation.
 
 

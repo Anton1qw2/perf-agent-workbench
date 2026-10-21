@@ -10,11 +10,12 @@ from .integrations.profiler_mcp import DemoProfilerGateway, MCPProfilerGateway
 from .llm import ChatModel
 from .orchestrator.agent import OrchestratorAgent
 from .orchestrator.graph import build_intake_graph
+from .orchestrator.routing import retain_pending
 from .profiler_analysis_agent.context_updates import effective_context
 from .profiler_analysis_agent.contracts import AnalysisServices
 from .profiler_analysis_agent.executor import ProfileAnalysisExecutor
 from .profiler_analysis_agent.factory import create_builtin_analyzer
-from .profiler_docs_agent import ProfilerDocsAgent
+from .runtime import check_deadline, execution_deadline
 from .store import Store
 from .task_agent.agent import TaskAgent
 
@@ -22,7 +23,7 @@ log = logging.getLogger(__name__)
 
 
 class Worker:
-    def __init__(self, settings: Settings, executor=None, *, analyzer_factory=None):
+    def __init__(self, settings: Settings, executor=None, *, analyzer_factory=None, experts=None):
         self.store = Store(settings.db_path)
         self.settings = settings
         self._configured_executor = executor is None
@@ -32,7 +33,7 @@ class Worker:
         self.graph = build_intake_graph(
             TaskAgent(model),
             OrchestratorAgent(model),
-            ProfilerDocsAgent(model),
+            experts=experts, max_input_bytes=settings.model_input_bytes,
         )
         if executor is not None:
             self.executor = executor
@@ -92,10 +93,29 @@ class Worker:
     def _intake(self, job):
         conv = self.store.conversation(job["conversation_id"])
         boundary = job["payload"].get("message_count", len(conv["messages"]))
-        output = self.graph.invoke({
-            "task": conv["spec"],
-            "messages": conv["messages"][:boundary],
-        })
+        deadline = time.monotonic() + 120
+        pending = self.store.intake_context(conv["id"]).get("pending_expert")
+        with execution_deadline(deadline):
+            output = self.graph.invoke({
+                "task": conv["spec"],
+                "messages": conv["messages"][:boundary],
+                "task_messages": self.store.task_messages(conv["id"], conv["messages"][:boundary]),
+                "pending_expert": pending,
+                "deadline": deadline,
+            })
+            try:
+                check_deadline()
+            except TimeoutError:
+                if output.get("route", {}).get("intent") != "consultation":
+                    raise
+                # Record classification without accepting late expert data or new state.
+                message = "The consultation exceeded its deadline. No guidance was accepted. Please retry."
+                retained = retain_pending(pending, output["route"], conv["messages"][:boundary])
+                output = {
+                    "route": {"intent": "consultation", "expert_id": None, "inputs": {}},
+                    "consultation": {"expert_id": None, "status": "unavailable", "answer": message},
+                    "reply": message, "pending_expert": retained,
+                }
         self.store.finish_intake(job, output)
 
     def _execute(self, job):

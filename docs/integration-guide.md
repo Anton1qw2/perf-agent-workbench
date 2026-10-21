@@ -214,12 +214,16 @@ The knowledge base is `src/perf_chat/profiler_docs_agent/Perf.md`. It is intenti
 empty. Replace its contents with UTF-8 Markdown documentation for your profiler, including versions and
 platforms. The file is included in installed packages and read again for each lookup.
 
-The intake graph calls the expert when the latest user message matches a keyword
-or phrase in `src/perf_chat/profiler_docs_agent/triggers.txt`. Put one literal keyword
+The documentation expert uses the same registry and routing protocol as other
+experts. LLM routing selects it by description and schema without requiring keywords.
+Demo routing matches a keyword or phrase in
+`src/perf_chat/profiler_docs_agent/triggers.txt`. Put one literal keyword
 or phrase per line. Matching ignores case and requires word boundaries; blank lines
 and lines starting with `#` are ignored. The default keyword is `perf`, for example
 `How do I collect hotspots with Perf?`. The file is reread each turn without a restart.
-An empty, missing or unreadable trigger file disables automatic chat lookups.
+An empty, missing or unreadable trigger file disables the demo shortcut.
+LLM routing distinguishes consultation, task changes and mixed requests.
+`/ask profiler_docs <question>` selects the expert explicitly in either mode.
 These triggers do not invoke MCP tools or control documentation lookup during report
 generation.
 In LLM mode the expert receives the complete UTF-8 document, the current question and
@@ -261,7 +265,8 @@ tool = expert.as_tool()  # ask_perf_docs; bind to an external execution agent.
 ```
 
 The expert does not execute Perf, read profiles, infer measurements or change launch
-readiness. Web and TUI receive its guidance through the existing orchestrator reply.
+readiness. Web and TUI receive its guidance through the existing intake reply.
+Pure consultations preserve the task and do not append intake questions.
 
 ## Overview
 
@@ -465,3 +470,9 @@ startup. JavaScript tests require Node.js 18+; Web still needs no build step.
 Profiler API tokens require an HTTPS MCP URL; HTTP is allowed only for localhost or
 literal loopback addresses. This is checked when saving and sending tokens. Git MCP
 uses the same Bearer authentication and encrypted-token flow, with an optional ENV fallback.
+
+## Consultation extension
+
+For backend-only expert registration, routing contracts, context isolation and
+durable expert questions, see [consultation experts](consultation-experts.md).
+This intake extension is independent of ExecutorGateway and custom execution analyzers.

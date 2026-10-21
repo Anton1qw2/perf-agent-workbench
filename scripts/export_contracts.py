@@ -10,6 +10,7 @@ from perf_chat.contracts import (
     PerformanceResult,
     PerformanceTask,
 )
+from perf_chat.experts.contracts import ExpertQuestion, ExpertResponse, ExpertSource
 from perf_chat.profiler_analysis_agent.context_contracts import (
     AnalysisContext,
     AnalysisContextUpdate,
@@ -37,6 +38,9 @@ for model in [
     ClarificationRequest,
     ClarificationAnswer,
     PerformanceResult,
+    ExpertQuestion,
+    ExpertResponse,
+    ExpertSource,
     AnalysisRequest,
     ProfileAnalysis,
     AnalysisStep,

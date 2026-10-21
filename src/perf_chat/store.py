@@ -38,6 +38,9 @@ class Store:
                     id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL,
                     type TEXT NOT NULL, payload TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS event_cursor ON events(conversation_id, id);
+                CREATE TABLE IF NOT EXISTS intake_turns (
+                    job_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, data TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS intake_conversation ON intake_turns(conversation_id);
                 CREATE TABLE IF NOT EXISTS credentials (
                     id TEXT PRIMARY KEY, destination TEXT NOT NULL, ciphertext TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS credential_bindings (
@@ -379,18 +382,56 @@ class Store:
             is not None
         )
 
+    def intake_context(self, conversation_id):
+        with self.tx() as db:
+            row = db.execute(
+                "SELECT data FROM intake_turns WHERE conversation_id=? ORDER BY rowid DESC LIMIT 1",
+                (conversation_id,),
+            ).fetchone()
+            return json.loads(row[0]) if row else {}
+
+    def task_messages(self, conversation_id, messages):
+        """Consultations stay in chat history but cannot become later task input."""
+        with self.tx() as db:
+            rows = db.execute(
+                "SELECT json_extract(data, '$.route.intent'), "
+                "json_extract(data, '$.message_indices'), json_extract(data, '$.task_reply') "
+                "FROM intake_turns WHERE conversation_id=?",
+                (conversation_id,),
+            ).fetchall()
+        excluded, replacements = set(), {}
+        for intent, indices, task_reply in rows:
+            indices = json.loads(indices or "[]")
+            if intent == "consultation":
+                excluded.update(indices)
+            elif intent == "mixed" and indices and task_reply is not None:
+                replacements[indices[-1]] = task_reply
+        return [{**message, "content": replacements.get(index, message["content"])}
+                for index, message in enumerate(messages) if index not in excluded]
+
     def finish_intake(self, job, output):
         with self.tx() as db:
             if not self._owns(db, job):
                 return
             conv = self._get(db, "conversations", job["conversation_id"])
-            task = PerformanceTask.model_validate(output["task"])
-            task.spec_version = conv["spec"]["spec_version"] + 1
-            conv["spec"] = task.model_dump()
+            route = output.get("route", {"intent": "task"})
+            if route["intent"] != "consultation":
+                task = PerformanceTask.model_validate(output["task"])
+                task.spec_version = conv["spec"]["spec_version"] + 1
+                conv["spec"] = task.model_dump()
+            db.execute("INSERT INTO intake_turns VALUES(?,?,?)", (
+                job["id"], conv["id"], json.dumps({
+                    "route": route, "consultation": output.get("consultation"),
+                    "pending_expert": output.get("pending_expert"),
+                    "task_reply": output.get("task_reply"),
+                    "message_indices": [job["payload"].get("message_count", len(conv["messages"])) - 1,
+                                        len(conv["messages"])],
+                }),
+            ))
             conv["messages"].append({"role": "assistant", "content": output["reply"]})
             self._save(db, "conversations", conv)
             db.execute("UPDATE jobs SET status='done' WHERE id=?", (job["id"],))
-            self._event(db, conv["id"], "intake.completed", {"version": task.spec_version})
+            self._event(db, conv["id"], "intake.completed", {"version": conv["spec"]["spec_version"]})
 
     def finish_step(self, job, rid, event, cursor, elapsed):
         with self.tx() as db:
