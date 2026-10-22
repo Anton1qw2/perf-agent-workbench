@@ -239,6 +239,13 @@ Profiler, documentation and model calls share the run deadline. Reject late succ
 and enforce total call timeouts. Use retry-stable clarification IDs, distinct for
 each new question. Preserve corrected analysis options across questions; current
 run task summary and accepted profile context override stale copies in free-form details.
+Metric preselection is optional. Metrics clarifications must explain that they refer
+to profiler counter names, accept exact names separated by commas/semicolons/newlines
+or a JSON array, and allow `continue` or a supported no-selection reply such as
+`не знаю` to select none. Do not invent metric names or require JSON-only chat replies.
+Keep the six-name validation bound. Persist acceptance of default analysis options,
+including an empty object, so malformed original task details cannot reissue the
+same settings question on later steps. Keep original run task snapshots unchanged.
 
 ## Dynamic profiler analysis
 

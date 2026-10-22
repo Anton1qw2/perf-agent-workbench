@@ -1,6 +1,7 @@
 """Bridge the analysis graph to the existing durable worker and clarification flow."""
 
 import json
+import re
 
 from ..contracts import ClarificationRequest, ExecutionEvent, PerformanceResult
 from ..runtime import execution_deadline
@@ -10,6 +11,17 @@ from .contracts import AnalysisRequest, AnalysisStep
 from .reporting import format_chat_report
 from .source_context import prepare_source
 from .source_contracts import SourceOptions, SourceRequest, SourceSnapshot
+
+_DEFAULT_REPLIES = {
+    "[]", "default", "defaults", "skip", "continue", "i don't know", "choose automatically",
+    "не знаю", "я не знаю", "по умолчанию", "продолжить", "продолжай", "выбери сам",
+}
+_METRICS_QUESTION = (
+    "Which profiler metrics should the analysis focus on? Metrics are counter names "
+    "reported by your profiler. Enter up to six exact names separated by commas, "
+    "or reply 'continue' if you do not know them. No preselection is required; "
+    "the analyzer can inspect the available tools. A JSON array is also accepted."
+)
 
 
 def render_report(report):
@@ -101,7 +113,7 @@ class ProfileAnalysisExecutor:
 
     @staticmethod
     def _apply_answer(cursor, options, answer, ask, supported):
-        """Apply a clarification reply, or return a question for invalid JSON."""
+        """Apply typed option corrections while accepting chat replies for metric selection."""
         awaiting = cursor["awaiting"]
         if awaiting == "result_id":
             options["result_id"] = answer.answer
@@ -109,8 +121,24 @@ class ProfileAnalysisExecutor:
         if awaiting == "analysis_input":
             cursor["context_reply_id"] = answer.request_id
             return None
+        text = answer.answer.strip()
+        defaults = text.casefold().rstrip(".!?") in _DEFAULT_REPLIES
+        if awaiting == "metrics":
+            if defaults:
+                options["metrics"] = []
+                return None
+            try:
+                value = json.loads(text)
+            except json.JSONDecodeError:
+                if text.startswith(("[", "{", '"')):
+                    return ask("metrics", _METRICS_QUESTION)
+                value = [name.strip() for name in re.split(r"[,;\n]", text) if name.strip()]
+            if isinstance(value, str):
+                value = [value]
+            options["metrics"] = value
+            return None
         try:
-            value = json.loads(answer.answer)
+            value = {} if awaiting == "options" and defaults else json.loads(text)
         except json.JSONDecodeError:
             return ask(awaiting, "Reply with valid JSON for " + awaiting + ".")
         if awaiting == "options":
@@ -119,6 +147,7 @@ class ProfileAnalysisExecutor:
                     "options", "Provide a JSON object with metrics and/or include_asm."
                 )
             options.update({key: value for key, value in value.items() if key in supported})
+            cursor["analysis_options_confirmed"] = True
         elif awaiting == "source":
             if not isinstance(value, dict):
                 return ask(
@@ -187,8 +216,10 @@ class ProfileAnalysisExecutor:
             clarification = self._apply_answer(cursor, options, answer, ask, supported)
             if clarification is not None:
                 return clarification
-        elif raw is not None and not isinstance(raw, dict) and not saved:
-            return ask("options", "Provide analysis options as a JSON object, or {} for defaults.")
+        elif (raw is not None and not isinstance(raw, dict) and not saved
+              and not cursor.get("analysis_options_confirmed")):
+            return ask("options", "The saved analysis settings are invalid. Reply 'continue' "
+                       "to use defaults, or provide corrected options as a JSON object.")
         if not options.get("result_id") and not (
             context.repository and self.git_gateway
         ):
@@ -252,7 +283,7 @@ class ProfileAnalysisExecutor:
                 str(exc.errors()[0]["loc"][0]) if isinstance(exc, ValidationError) else "options"
             )
             questions = {
-                "metrics": "Reply with a JSON array of up to six metric names.",
+                "metrics": _METRICS_QUESTION,
                 "include_asm": "Should assembly be requested? Reply with JSON true or false.",
                 "result_id": "Provide a nonempty profiler result_id of at most 4096 characters.",
                 "source": "Provide source options as JSON: policy, locations (path/start_line/end_line), symbols, and optional scoped commit.",
@@ -321,7 +352,7 @@ class ProfileAnalysisExecutor:
                 + (
                     '\nReply with source options JSON, or {"policy":"off"} to continue without source. Preparation failures require a new run to retry.'
                     if report.clarification_field == "source"
-                    else '\nReply as a JSON array, for example ["cpu_samples"].'
+                    else "\n" + _METRICS_QUESTION
                     if report.clarification_field == "metrics"
                     else "\nReply in chat with the requested analysis context."
                 ),

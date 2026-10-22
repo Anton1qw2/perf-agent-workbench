@@ -163,6 +163,21 @@ otherwise execution asks for a result ID. Any additional identifiers or context 
 in chat; there is no automatic mandatory metric-selection questionnaire. The answer
 resumes the durable run.
 
+If saved metric options are malformed or an analyzer requests metric selection,
+the question explains that metrics are profiler counter names. Enter up to six exact
+names separated by commas, semicolons or newlines; JSON arrays remain accepted.
+Reply `continue`, `I don't know`, `не знаю`, `выбери сам` or `[]` to continue with no
+preselected metrics. This does not invent names or prove metric availability; the
+analyzer still relies on permitted MCP discovery and evidence. Invalid selections
+produce a concrete question with the same no-preselection alternative, rather than
+a generic JSON syntax request. Other structured option/source corrections retain
+their existing validation rules.
+
+For an invalid top-level analysis options value, `continue` or `{}` accepts defaults.
+That acceptance is checkpointed separately from the empty options object, so later
+worker steps and restarts do not re-ask solely because the original task was malformed.
+The original run task snapshot is retained; corrected options remain in its cursor.
+
 Optional settings agreed in chat are stored in `task.details.profile_analysis`:
 
 ```json

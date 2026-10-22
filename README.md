@@ -54,9 +54,15 @@ Provide either a Git Repository or a Profile in **Project settings**, describe t
 goal, constraints and acceptance criteria in chat, then click **Run**. Both inputs
 can be supplied together. Profile analysis uses Profile as the MCP `result_id` and
 does not require a repository or branch. Source access may require a branch.
+In Web, click **Save** after changing project settings or tokens. **Send** and
+**Run** stay disabled until changes are saved. Blank token fields preserve saved
+credentials; enter a new token to replace it, or use **Remove** and **Save** to clear it.
 Launch requires a task summary and no unresolved intake questions. The selected
 executor requests additional data during the run when needed; a profile analyzer
 may ask for a result ID after a repository-only launch. Reply in chat.
+If asked to select metrics, enter their exact names separated by commas, or reply
+`continue` (also `не знаю`) to proceed without preselection. See
+[execution clarifications](docs/integration-guide.md) for accepted formats.
 
 With a selected profile or repository, performance/source questions about it default
 to preparing an analysis task. Explicit documentation or general-knowledge questions

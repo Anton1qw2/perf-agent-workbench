@@ -202,8 +202,9 @@ ordered question/answer pairs to both the planner and final interpretation throu
 common model input budget, so answers such as "the second one" keep their context
 after a worker restart. Clarifications describe user scope and assumptions, not
 measured evidence. Custom graphs must preserve equivalent clarification context.
-`metrics` and `source` retain
-the existing structured clarification paths. Checkpoints must be JSON-serializable
+`metrics` and `source` retain typed option correction paths. Metrics also accept
+plain counter names separated by commas/semicolons/newlines or `continue` to omit
+preselection; source corrections still require their structured options. Checkpoints must be JSON-serializable
 and free of credentials. `cancel(run_id)` is optional for releasing custom resources;
 worker cancellation remains cooperative between steps.
 

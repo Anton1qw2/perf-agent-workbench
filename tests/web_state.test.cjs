@@ -72,6 +72,7 @@ async function fixture(initialStorage = {}, cryptoApi = {randomUUID}) {
         for (const key of ['git_token', 'profiler_token']) {
           if (key in (request.body.credentials || {})) conversations[id].credentials[key + '_configured'] = !!request.body.credentials[key];
         }
+        return response(conversations[id]);
       }
       return response({});
     }
@@ -150,6 +151,117 @@ test('personal Git token uses the separate credential payload and is cleared aft
   assert.equal(f.elements['git-token'].value, '');
   assert.equal(f.elements['git-token-status'].textContent, 'Saved on backend');
   assert.ok(!f.run('JSON.stringify([...drafts])').includes('synthetic-personal-token'));
+});
+
+test('unsaved settings block Send and keyboard submission until Save succeeds', async () => {
+  const f = await fixture();
+  f.elements.repository.value = 'new-repo';
+  f.elements['context-form'].oninput();
+  f.elements.input.value = 'Inspect this repository';
+  assert.equal(f.elements.send.disabled, true);
+  f.submit('composer'); await settle();
+  assert.equal(f.requests.filter(r => r.method === 'POST').length, 0);
+  assert.equal(f.elements.input.value, 'Inspect this repository');
+  assert.match(f.elements.error.textContent, /Save project settings/);
+  await f.run('open("b")');
+  await f.run('open("a")');
+  assert.equal(f.elements.send.disabled, true);
+  assert.equal(f.elements.run.disabled, true);
+  f.submit('context-form'); await settle();
+  assert.equal(f.elements.send.disabled, false);
+  assert.equal(f.elements.run.disabled, false);
+  f.submit('composer'); await settle();
+  assert.equal(f.requests.filter(r => r.method === 'POST').length, 1);
+  assert.equal(f.conversations.a.spec.target.repository, 'new-repo');
+});
+
+test('repeated saves use committed versions and preserve, replace and remove the Git token', async () => {
+  const f = await fixture();
+  f.elements['git-token'].value = 'synthetic-original';
+  f.elements['context-form'].oninput();
+  f.submit('context-form'); await settle();
+  f.elements.branch.value = 'feature';
+  f.elements['context-form'].oninput();
+  f.submit('context-form'); await settle();
+  assert.equal(f.elements['git-token-status'].textContent, 'Saved on backend');
+  f.elements['git-token'].value = 'synthetic-replacement';
+  f.elements['context-form'].oninput();
+  f.submit('context-form'); await settle();
+  f.elements['remove-git-token'].onclick();
+  assert.equal(f.elements.send.disabled, true);
+  f.submit('context-form'); await settle();
+  const writes = f.requests.filter(r => r.method === 'PUT');
+  assert.deepEqual(writes.map(r => r.body.expected_version), [1, 2, 3, 4]);
+  assert.deepEqual(writes.map(r => r.body.credentials), [
+    {git_token: 'synthetic-original'}, {}, {git_token: 'synthetic-replacement'}, {git_token: ''}
+  ]);
+  assert.equal(f.run('contextSpec.spec_version'), 5);
+  assert.equal(f.elements['git-token-status'].textContent, 'Not configured');
+  assert.equal(f.elements.send.disabled, false);
+});
+
+test('edits during Save survive and only unchanged submitted tokens are cleared', async () => {
+  const f = await fixture(), pending = deferred();
+  let write;
+  f.intercept(r => {
+    if (r.method === 'PUT') { write = r; return pending.promise; }
+  });
+  f.elements['git-token'].value = 'synthetic-git';
+  f.elements['profiler-token'].value = 'synthetic-profiler';
+  f.elements['context-form'].oninput();
+  f.submit('context-form'); await settle();
+  f.elements.branch.value = 'next-branch';
+  f.elements['profiler-token'].value = 'synthetic-new-profiler';
+  f.elements['context-form'].oninput();
+  f.conversations.a.spec = structuredClone(write.body.spec);
+  f.conversations.a.spec.spec_version++;
+  f.conversations.a.credentials = {git_token_configured: true, profiler_token_configured: true};
+  pending.resolve(f.response(f.conversations.a)); await settle();
+  assert.equal(f.elements['git-token'].value, '');
+  assert.equal(f.elements['profiler-token'].value, 'synthetic-new-profiler');
+  assert.equal(f.elements.branch.value, 'next-branch');
+  assert.equal(f.elements.send.disabled, true);
+  f.intercept(undefined);
+  f.submit('context-form'); await settle();
+  const next = f.requests.filter(r => r.method === 'PUT').at(-1);
+  assert.equal(next.body.expected_version, 2);
+  assert.equal(next.body.spec.target.branch, 'next-branch');
+  assert.deepEqual(next.body.credentials, {profiler_token: 'synthetic-new-profiler'});
+  assert.equal(f.elements.send.disabled, false);
+});
+
+test('Send and Run stay blocked during Save even after a snapshot refresh', async () => {
+  const f = await fixture(), pending = deferred();
+  f.intercept(r => r.method === 'PUT' ? pending.promise : undefined);
+  f.submit('context-form'); await settle();
+  await f.run('refresh()');
+  assert.equal(f.elements.send.disabled, true);
+  assert.equal(f.elements.run.disabled, true);
+  f.elements.input.value = 'Keep this message';
+  f.submit('composer'); await settle();
+  assert.equal(f.requests.filter(r => r.method === 'POST').length, 0);
+  pending.resolve(f.response({detail: 'Save failed'}, 503)); await settle();
+  assert.equal(f.elements.input.value, 'Keep this message');
+  assert.equal(f.elements.send.disabled, false);
+  assert.equal(f.elements.run.disabled, false);
+});
+
+test('failed Save retains changed settings and token for a successful retry', async () => {
+  const f = await fixture();
+  f.intercept(r => r.method === 'PUT' ? f.response({detail: 'Save failed'}, 503) : undefined);
+  f.elements.repository.value = 'retry-repo';
+  f.elements['git-token'].value = 'synthetic-retry';
+  f.elements['context-form'].oninput();
+  f.submit('context-form'); await settle();
+  assert.equal(f.elements.send.disabled, true);
+  assert.equal(f.elements['save-context'].disabled, false);
+  assert.equal(f.elements.repository.value, 'retry-repo');
+  assert.equal(f.elements['git-token'].value, 'synthetic-retry');
+  f.intercept(undefined);
+  f.submit('context-form'); await settle();
+  assert.equal(f.conversations.a.spec.target.repository, 'retry-repo');
+  assert.equal(f.elements['git-token'].value, '');
+  assert.equal(f.elements.send.disabled, false);
 });
 
 test('a failed snapshot after the final SSE event retries without another event', async () => {

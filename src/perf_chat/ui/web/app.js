@@ -24,6 +24,21 @@ const messageRequests = new Map();
 const contextKeys = ['repository', 'branch', 'profile'];
 const tokenFields = [['git-token', 'git_token'], ['profiler-token', 'profiler_token']];
 const tokenRemovals = new Set();
+const pendingContextSaves = new Set();
+
+function renderSendState() {
+  const saving = pendingContextSaves.has(cid);
+  $('send').disabled = !state || state.busy || pendingMessages.has(cid) || dirty || saving;
+  $('send').title = dirty || saving ? 'Save project settings before sending' : '';
+}
+
+function renderRunState() {
+  const active = ['queued', 'running', 'waiting', 'cancelling'].includes(latest()?.status);
+  const unsaved = dirty || pendingContextSaves.has(cid);
+  $('run').disabled = !state || unsaved || state.busy || active || state.missing_fields.length > 0;
+  $('run').title = unsaved ? 'Save project settings before running'
+    : state?.missing_fields.length ? 'Clarify the task in chat and provide a Git repository or profiler result ID' : '';
+}
 
 function renderCredentials() {
   for (const [id, key] of tokenFields) {
@@ -169,11 +184,9 @@ async function refresh() {
   const run = latest();
   const active = run && ['queued', 'running', 'waiting', 'cancelling'].includes(run.status);
   renderActivityStatus();
-  $('run').disabled = dirty || state.busy || !!active || state.missing_fields.length > 0;
-  $('run').title = dirty ? 'Save project settings before running'
-    : state.missing_fields.length ? 'Clarify the task in chat and provide a Git repository or profiler result ID' : '';
+  renderRunState();
   $('cancel').disabled = !active || run.status === 'cancelling';
-  $('send').disabled = state.busy || pendingMessages.has(cid);
+  renderSendState();
   $('question').hidden = run?.status !== 'waiting';
   renderMessageMarkdown($('question'), run?.clarification?.question || '');
   $('execution').textContent = run ? `${statusNames[run.status]} · ${run.result?.summary || run.progress || ''}` : '';
@@ -203,7 +216,9 @@ async function open(id) {
     dirty = true;
     $('context-status').textContent = 'Unsaved changes restored';
   }
-  $('save-context').disabled = false;
+  $('save-context').disabled = pendingContextSaves.has(cid);
+  renderRunState();
+  renderSendState();
   await sidebar();
   if (navigation !== navigationSequence) return;
   const connection = new EventSource('/api/conversations/' + id + '/events');
@@ -269,12 +284,14 @@ $('context-form').oninput = () => {
   for (const [id, key] of tokenFields) if ($(id).value) tokenRemovals.delete(key);
   dirty = true; $('context-status').textContent = 'There are unsaved changes';
   $('run').disabled = true;
+  renderSendState();
   renderCredentials();
 };
 for (const [id, key] of tokenFields) {
   $('remove-' + id).onclick = () => {
     $(id).value = ''; tokenRemovals.add(key);
     dirty = true; $('run').disabled = true;
+    renderSendState();
     $('context-status').textContent = 'Token will be removed on Save';
     renderCredentials();
   };
@@ -291,7 +308,10 @@ $('context-form').onsubmit = event => {
       if ($(id).value) credentials[key] = $(id).value;
       else if (tokenRemovals.has(key)) credentials[key] = '';
     }
+    pendingContextSaves.add(current);
     $('save-context').disabled = true;
+    $('run').disabled = true;
+    renderSendState();
     try {
       const fresh = await api('/conversations/' + current);
       const conflicts = contextKeys.filter(key =>
@@ -303,16 +323,18 @@ $('context-form').onsubmit = event => {
       }
       const spec = fresh.spec;
       Object.assign(spec.target, fields);
-      await api('/conversations/' + current + '/spec', 'PUT', {spec, expected_version: spec.spec_version, credentials});
+      const saved = await api('/conversations/' + current + '/spec', 'PUT', {spec, expected_version: spec.spec_version, credentials});
+      const savedSpec = saved.spec;
       if (cid === current) {
-        const tokensUnchanged = tokenFields.every(([id, key]) =>
-          ($(id).value || (tokenRemovals.has(key) ? '' : undefined)) === credentials[key]);
-        if (tokensUnchanged) {
-          for (const [id] of tokenFields) $(id).value = '';
-          tokenRemovals.clear();
+        for (const [id, key] of tokenFields) {
+          if (($(id).value || (tokenRemovals.has(key) ? '' : undefined)) === credentials[key]) {
+            $(id).value = '';
+            tokenRemovals.delete(key);
+          }
         }
-        const unchanged = tokensUnchanged && contextKeys.every(key => ($(key).value.trim() || null) === fields[key]);
-        contextSpec = structuredClone(spec); contextVersion = spec.spec_version + 1;
+        const unchanged = !tokenFields.some(([id, key]) => $(id).value || tokenRemovals.has(key))
+          && contextKeys.every(key => ($(key).value.trim() || null) === (savedSpec.target[key] ?? null));
+        contextSpec = structuredClone(savedSpec); contextVersion = savedSpec.spec_version;
         dirty = !unchanged;
         $('context-status').textContent = unchanged ? 'Saved' : 'There are new unsaved changes';
         $('reload-context').hidden = true;
@@ -320,11 +342,18 @@ $('context-form').onsubmit = event => {
       } else {
         const draft = drafts.get(current);
         if (draft) {
-          draft.contextSpec = spec; draft.contextVersion = spec.spec_version + 1;
-          draft.dirty = !contextKeys.every(key => (draft.fields[key].trim() || null) === fields[key]);
+          draft.contextSpec = structuredClone(savedSpec); draft.contextVersion = savedSpec.spec_version;
+          draft.dirty = !contextKeys.every(key => (draft.fields[key].trim() || null) === (savedSpec.target[key] ?? null));
         }
       }
-    } finally { if (cid === current) $('save-context').disabled = false; }
+    } finally {
+      pendingContextSaves.delete(current);
+      if (cid === current) {
+        $('save-context').disabled = false;
+        renderSendState();
+        renderRunState();
+      }
+    }
   });
 };
 $('reload-context').onclick = () => guard(async () => {
@@ -334,6 +363,8 @@ $('reload-context').onclick = () => guard(async () => {
   state = fresh; dirty = false; renderContext();
   for (const [id] of tokenFields) $(id).value = '';
   tokenRemovals.clear(); renderCredentials();
+  renderSendState();
+  renderRunState();
   $('reload-context').hidden = true; $('error').hidden = true;
   $('context-status').textContent = 'Latest settings loaded';
 });
@@ -356,6 +387,9 @@ $('composer').onsubmit = event => {
   guard(async () => {
     const content = $('input').value.trim(); if (!content) return;
     if (!state || state.busy || pendingMessages.has(cid)) return;
+    if (dirty || pendingContextSaves.has(cid)) {
+      throw new Error('Save project settings before sending your message.');
+    }
     const current = cid, run = latest();
     const requestKey = JSON.stringify([current, run?.status === 'waiting' ? run.id : '', content]);
     if (!messageRequests.has(requestKey)) messageRequests.set(requestKey, createRequestId());
@@ -375,7 +409,7 @@ $('composer').onsubmit = event => {
       if (cid === current) { await refresh(); await sidebar(); }
     } finally {
       pendingMessages.delete(current);
-      if (cid === current) { $('send').disabled = !state || state.busy; renderActivityStatus(); }
+      if (cid === current) { renderSendState(); renderActivityStatus(); }
     }
   });
 };
