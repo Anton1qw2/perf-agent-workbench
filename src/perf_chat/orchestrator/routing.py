@@ -17,6 +17,14 @@ analysis, investigation or optimization task, or answering its intake questions;
 consultation for explanations, factual questions
 or expert clarification replies; mixed only when the user also explicitly requests a
 task change. Consultation must not modify task state.
+Use dialogue to explain a previous agent error, discuss an existing response or
+reformat/summarize/translate an existing report. The orchestrator handles this
+without another expert or task extraction, even with a selected profile/repository.
+"Why did the agent fail?", "What does this error mean?" and "Make that report a
+table" are dialogue. This takes precedence over contextual performance questions.
+New investigations or explicit task changes still use task/mixed. Explicit /ask and
+/task commands take precedence. Do not treat a missing expert as the explanation
+for an existing failure. For dialogue return expert_id=null and inputs={}.
 context.task.target is the current agreed selection; old history never overrides it.
 When it contains a profile or repository, performance/source questions about that
 selection default to task analysis, even if phrased as questions or explanations.
@@ -44,7 +52,8 @@ Capabilities needs no expert or task extraction. A request to actually analyze o
 change a task is task, not capabilities. Explicit task changes retain task/mixed routing.
 Only work_catalog entries with intent=consultation may supply an expert_id.
 For task or capabilities return expert_id=null and inputs={}; performance_analysis
-is a task direction, never an expert_id. Choose at most one available consultation
+is a task direction and response_discussion is a dialogue direction, never an
+expert_id. Choose at most one available consultation
 expert_id, or null when none fits.
 Build inputs using its input_schema. Resolve short
 follow-ups using pending.inputs and pending.question, without inventing user facts.
@@ -55,7 +64,7 @@ verified machine evidence. Do not invent experts, capabilities, credentials or m
 
 class IntakeRoute(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    intent: Literal["task", "consultation", "mixed", "capabilities"]
+    intent: Literal["task", "consultation", "mixed", "capabilities", "dialogue"]
     expert_id: str | None = Field(default=None, max_length=64)
     inputs: dict = Field(default_factory=dict)
     limitation: str = Field(default="", max_length=1000)
@@ -88,6 +97,17 @@ def _demo_consultation_request(question):
                             r"(?:explain\s+)?how\s+(?:to|do\s+i)\b|"
                             r"(?:объясни[,\s]+)?как\s+(?:анализировать|использовать|собрать)\b",
                             question.strip(), re.I))
+
+
+def _demo_dialogue_request(question):
+    text = question.strip().casefold()
+    error = re.search(r"\b(?:error|failed|failure|ошиб\w*|сбой|сбоя|сбое)\b", text)
+    report = re.search(r"\b(?:report|response|answer|отч[её]т\w*|ответ\w*)\b", text)
+    explain = re.match(r"(?:please\s+|пожалуйста[,\s]+)?(?:why|what|explain|help|"
+                       r"почему|что|объясни|поясни|помоги|как)\b", text)
+    format_request = re.search(r"\b(?:reformat|summarize|translate|shorten|table|"
+                               r"переформатируй|оформи|сократи|переведи|таблиц\w*|резюмируй)\b", text)
+    return bool((error and explain) or (report and (explain or format_request)))
 
 
 def routing_context(task=None, runs=()):
@@ -128,6 +148,8 @@ def route_intake(registry, model, messages, pending=None, *, max_bytes=120000,
         return IntakeRoute(intent="consultation", limitation="Use /ask <expert_id> <question>.")
     if model is None:
         # Demo shortcuts only; LLM routing classifies intent semantically.
+        if _demo_dialogue_request(question) and not _demo_analysis_request(question):
+            return IntakeRoute(intent="dialogue")
         normalized = question.strip().casefold().rstrip("?!.,:;").rstrip()
         if normalized in {
             "what can you do", "how can you help", "what are your capabilities",
@@ -169,11 +191,11 @@ def route_intake(registry, model, messages, pending=None, *, max_bytes=120000,
         decision = IntakeRoute.model_validate_json(model.complete(SYSTEM, payload, json_output=True))
         check_deadline()
         check_size(decision.model_dump(), max_bytes)
-        if (decision.intent != "capabilities" and decision.expert_id
+        if (decision.intent in {"consultation", "mixed"} and decision.expert_id
                 and decision.expert_id not in {item["id"] for item in catalog
                                               if item["intent"] == "consultation"}):
             raise ValueError("Unknown expert selection")
-        if decision.intent in {"task", "capabilities"}:
+        if decision.intent in {"task", "capabilities", "dialogue"}:
             decision.expert_id, decision.inputs = None, {}
         return decision
     except Exception:

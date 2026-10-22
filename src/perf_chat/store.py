@@ -390,8 +390,33 @@ class Store:
             ).fetchone()
             return json.loads(row[0]) if row else {}
 
+    def response_context(self, conversation_id):
+        """Host-selected response data, never full run cursors or transport settings."""
+        with self.tx() as db:
+            conv = self._get(db, "conversations", conversation_id)
+            consultation = db.execute(
+                "SELECT json_extract(data, '$.consultation'), "
+                "json_extract(data, '$.message_indices') FROM intake_turns "
+                "WHERE conversation_id=? AND json_type(data, '$.consultation')='object' "
+                "ORDER BY rowid DESC LIMIT 1", (conversation_id,),
+            ).fetchone()
+            runs = db.execute(
+                "SELECT json_object('run_id', id, 'status', json_extract(data, '$.status'), "
+                "'summary', json_extract(data, '$.result.summary'), "
+                "'limitations', json_extract(data, '$.result.limitations')) FROM runs "
+                "WHERE conversation_id=? ORDER BY rowid DESC LIMIT 3", (conversation_id,),
+            ).fetchall()
+        return {
+            "last_failure": conv.get("last_failure"),
+            "consultation": json.loads(consultation[0]) if consultation else None,
+            "consultation_message_indices": json.loads(consultation[1] or "[]") if consultation else [],
+            "recent_runs": [json.loads(row[0]) for row in runs],
+            "scope": "Saved consultation and run summaries only; raw evidence is not supplied. "
+                     "Last failure is historical and may precede a later successful response.",
+        }
+
     def task_messages(self, conversation_id, messages):
-        """Consultation and capability turns stay in chat, outside later task input."""
+        """Non-task turns stay in chat, outside later task input."""
         with self.tx() as db:
             rows = db.execute(
                 "SELECT json_extract(data, '$.route.intent'), "
@@ -402,7 +427,7 @@ class Store:
         excluded, replacements = set(), {}
         for intent, indices, task_reply in rows:
             indices = json.loads(indices or "[]")
-            if intent in {"consultation", "capabilities"}:
+            if intent in {"consultation", "capabilities", "dialogue"}:
                 excluded.update(indices)
             elif intent == "mixed" and indices and task_reply is not None:
                 replacements[indices[-1]] = task_reply
@@ -415,7 +440,7 @@ class Store:
                 return
             conv = self._get(db, "conversations", job["conversation_id"])
             route = output.get("route", {"intent": "task"})
-            if route["intent"] not in {"consultation", "capabilities"}:
+            if route["intent"] in {"task", "mixed"}:
                 task = PerformanceTask.model_validate(output["task"])
                 task.spec_version = conv["spec"]["spec_version"] + 1
                 conv["spec"] = task.model_dump()
@@ -495,7 +520,7 @@ class Store:
             self._event(db, run["conversation_id"], "run.cancelled", {"run_id": rid})
             self._release_run_credentials(db, rid)
 
-    def fail(self, job):
+    def fail(self, job, *, failure_code="processing_failed"):
         # Details stay in worker logs; never send provider responses/credentials to clients.
         with self.tx() as db:
             if not self._owns(db, job):
@@ -507,11 +532,21 @@ class Store:
             }
             conv = self._get(db, "conversations", job["conversation_id"])
             conv["last_error"] = error
+            # Keep safe diagnostic context after the UI notice is dismissed by a new message.
+            # Never persist exception text, provider payloads or credential references here.
+            conv["last_failure"] = {
+                **error,
+                "code": "timeout" if failure_code == "timeout" else "processing_failed",
+                "stage": "intake" if job["kind"] == "intake" else "execution",
+                "message_index": len(conv["messages"]) - 1,
+            }
             self._save(db, "conversations", conv)
             if job["kind"] != "intake":
                 rid = job["id"] if job["kind"] == "execute" else job["payload"]["run_id"]
                 run = self._get(db, "runs", rid)
                 run["status"] = "failed"
+                conv["last_failure"]["run_id"] = rid
+                self._save(db, "conversations", conv)
                 self._save(db, "runs", run)
                 self._release_run_credentials(db, rid)
             self._event(

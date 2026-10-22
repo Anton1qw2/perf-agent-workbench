@@ -15,6 +15,12 @@ def work_catalog(registry, execution=None, *, include_schemas=False):
             "name": "Assistant capabilities",
             "description": "Describe supported functions and registered experts without changing the task.",
         },
+        {
+            "id": "response_discussion", "intent": "dialogue", "execution": "intake",
+            "name": "Explain agent responses",
+            "description": "Explain previous agent errors and results, or reformat an existing "
+                           "report without calling an expert, changing the task or starting a run.",
+        },
         *({**expert, "intent": "consultation", "execution": "intake"}
           for expert in registry.catalog(include_schemas=include_schemas)),
     ]

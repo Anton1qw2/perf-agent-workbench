@@ -23,6 +23,7 @@ class IntakeState(TypedDict, total=False):
     pending_expert: dict | None
     deadline: float | None
     runs: list[dict]
+    response_context: dict
 
 
 def _response(state):
@@ -89,16 +90,31 @@ def build_intake_graph(
             output["pending_expert"] = None
         return output
 
+    def consultation_reply(state):
+        response = _response(state)
+        text = _render_consultation(response)
+        if response.status in {"unavailable", "not_found"} and state["route"]["expert_id"]:
+            text = orchestrator.discuss(
+                state["messages"], {"consultation": state["consultation"]},
+                max_input_bytes=max_input_bytes, fallback=text,
+            )
+        return text
+
     def respond(state: IntakeState):
         if state["route"]["intent"] == "capabilities":
             return {"reply": capabilities_reply(registry, execution_capabilities)}
+        if state["route"]["intent"] == "dialogue":
+            return {"reply": orchestrator.discuss(
+                state["messages"], state.get("response_context", {}),
+                max_input_bytes=max_input_bytes,
+            )}
         if state["route"]["intent"] == "consultation":
-            return {"reply": _render_consultation(_response(state))}
+            return {"reply": consultation_reply(state)}
         task = PerformanceTask.model_validate(state["task"])
         task_reply = orchestrator.reply(task, state["messages"])
         reply = task_reply
         if state["route"]["intent"] == "mixed":
-            reply = _render_consultation(_response(state)) + "\n\n" + reply
+            reply = consultation_reply(state) + "\n\n" + reply
         return {"reply": reply, "task_reply": task_reply}
 
     graph = StateGraph(IntakeState)
@@ -109,7 +125,7 @@ def build_intake_graph(
     graph.add_edge(START, "route")
     graph.add_conditional_edges("route", lambda state: state["route"]["intent"], {
         "task": "task_agent", "mixed": "task_agent", "consultation": "consult",
-        "capabilities": "orchestrator",
+        "capabilities": "orchestrator", "dialogue": "orchestrator",
     })
     graph.add_conditional_edges("task_agent", lambda state: state["route"]["intent"], {
         "task": "orchestrator", "mixed": "consult",

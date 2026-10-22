@@ -24,7 +24,7 @@ Paths are relative to the repository root.
 | --- | --- |
 | `src/perf_chat/ui/web/` | Vanilla HTML/CSS/JavaScript; no build step |
 | `src/perf_chat/ui/tui.py`, `ui/client.py` | Textual UI and HTTP/SSE client |
-| `src/perf_chat/orchestrator/` | User-facing agent, contextual intake routing/graph, shared work catalog and capability descriptions |
+| `src/perf_chat/orchestrator/` | User-facing agent, contextual intake routing/graph, error/result discussion, shared work catalog and capability descriptions |
 | `src/perf_chat/experts/` | Common consultation registry, context policy and default expert registrations |
 | `src/perf_chat/task_agent/` | Structured task extraction and partial updates |
 | `src/perf_chat/profiler_docs_agent/` | Documentation expert, full-document loader, `Perf.md`, `triggers.txt` |
@@ -97,8 +97,8 @@ and `/task` commands take precedence. Requests to perform analysis or change an
 existing task remain task/mixed intake. Capability replies need no repository or
 profile and must stay separate from task-readiness responses.
 
-Intake routes each message as task, consultation, mixed or capabilities before TaskAgent.
-`orchestrator/catalog.py` describes built-in analysis/task preparation, capabilities
+Intake routes each message as task, consultation, mixed, capabilities or dialogue before TaskAgent.
+`orchestrator/catalog.py` describes built-in analysis/task preparation, response discussion, capabilities
 and registered consultation experts in one routing catalog. Analysis entries use
 the task path and explicit execution launch, never ExpertRegistry.consult().
 Show the analysis direction alongside consultation experts in capability answers
@@ -120,6 +120,38 @@ pending expert conversations. Demo routing uses conservative phrases before keyw
 matchers; semantic classification requires LLM mode. Triggers do not override an
 analysis request. Missing execution input is requested in chat. Neither classification
 nor TaskAgent launches a run; preserve explicit Run and execution clarification resume.
+
+Requests to explain a previous agent error/result or reformat, summarize or translate
+an existing report use the host-owned `dialogue` route. This takes precedence over
+the selected-profile/repository analysis default; explicit `/ask` and `/task` still
+win. New investigations and explicit task changes remain task/mixed intake. Do not
+search for another expert merely to explain an existing response or conclude that
+an unavailable response proves a missing agent.
+
+`OrchestratorAgent.discuss()` uses its separate dialogue prompt without TaskAgent,
+expert calls or execution. Worker supplies the latest saved consultation, up to
+three recent run summaries and safe historical failure metadata through
+`Store.response_context()`. Do not pass raw run cursors/evidence, transport settings
+or credentials. The router context whitelist remains unchanged. A saved failure
+may predate a successful response; do not present it as necessarily current.
+Persist only host-owned failure codes/stages and identifiers, never exception text
+or provider payloads. Keep this context after dismissing the UI error notice.
+
+In LLM mode, explain unavailable/not_found expert responses immediately, including
+the consultation portion of mixed turns; retain deterministic rendering as fallback.
+Successful consultations retain their original rendering. Explain known facts,
+uncertainties and useful next steps without inventing a cause or claiming a fix.
+Report reformatting creates a new chat answer; preserve the original report/run,
+facts, units, citations, limitations, demo flags and validation status. Missing report
+details require clarification. Never promote unvalidated output to accepted evidence.
+Free-form explanation/reformatting requires LLM mode; demo uses static fallbacks.
+
+Dialogue turns preserve the complete task and spec_version, clear pending expert
+questions and are excluded from later TaskAgent input while remaining in chat.
+Use the shared intake deadline and model input budget. Older chat messages may be
+omitted to fit, but response records must not be silently truncated. Discard late
+generated discussion output and commit only a host-owned timeout reply under the
+job lease. Do not append readiness questions, suggest Run or launch execution.
 
 Pure consultations must preserve the complete task and spec_version, need no
 repository/profile and must not append task-readiness questions or Run suggestions.

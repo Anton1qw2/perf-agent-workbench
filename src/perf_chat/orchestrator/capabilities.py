@@ -14,6 +14,9 @@ def capabilities_reply(registry, execution=None):
     lines = [
         "I can help define a performance optimization or analysis task, clarify its "
         "goal and constraints, and hand it to the configured executor.",
+        "I can also explain previous agent errors and results, and reformat existing "
+        "reports in LLM mode without launching another analysis. Explanations depend "
+        "on the available error details; they do not verify a fix.",
         "The built-in profile analyzer can investigate profiler data and repository "
         "source evidence through configured read-only services and report findings "
         "with evidence and limitations. Actual optimization requires an external executor.",

@@ -94,7 +94,8 @@ class Worker:
         except Exception as exc:
             # Exception text may contain provider response content: log only its class and job id.
             log.error("job=%s error=%s", job["id"], type(exc).__name__)
-            self.store.fail(job)
+            self.store.fail(job, failure_code="timeout" if isinstance(exc, TimeoutError)
+                            else "processing_failed")
         return True
 
     def _intake(self, job):
@@ -109,18 +110,21 @@ class Worker:
                 "task_messages": self.store.task_messages(conv["id"], conv["messages"][:boundary]),
                 "pending_expert": pending,
                 "runs": conv["runs"],
+                "response_context": self.store.response_context(conv["id"]),
                 "deadline": deadline,
             })
             try:
                 check_deadline()
             except TimeoutError:
                 intent = output.get("route", {}).get("intent")
-                if intent not in {"consultation", "capabilities"}:
+                if intent not in {"consultation", "capabilities", "dialogue"}:
                     raise
                 # Preserve classification while discarding all late generated output.
                 message = (
                     "The capabilities request exceeded its deadline. Please retry."
                     if intent == "capabilities" else
+                    "The response discussion exceeded its deadline. Please retry."
+                    if intent == "dialogue" else
                     "The consultation exceeded its deadline. No guidance was accepted. Please retry."
                 )
                 retained = retain_pending(pending, output["route"], conv["messages"][:boundary])

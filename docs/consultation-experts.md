@@ -1,7 +1,7 @@
 # Backend consultation experts
 
-The main chat supports task intake, consultations, mixed requests and capability
-questions. The intake router runs before TaskAgent. Consultation turns do not update the task or its
+The main chat supports task intake, consultations, mixed requests, capability
+questions and discussion of existing responses. The intake router runs before TaskAgent. Consultation turns do not update the task or its
 version, do not require repository/profile settings and do not suggest Run.
 Mixed requests update the task and consult one expert; task changes must be explicit
 in the user's request. Routing is model-based in LLM mode and can misclassify intent.
@@ -40,6 +40,36 @@ classifies intent semantically; demo mode uses conservative English/Russian phra
 before the registered keyword matchers. It cannot interpret arbitrary paraphrases;
 use `/task` or `/ask` when a demo shortcut is insufficient. Missing documentation
 triggers still disable keyword-based expert selection.
+
+## Explaining errors and formatting existing reports
+
+Requests such as "Why did the agent fail?" or "Turn that report into a table" use
+the host-owned `dialogue` route. This route takes precedence over the selected-target
+analysis default, without calling TaskAgent or selecting another expert. Explicit
+`/ask` and `/task` commands still take precedence, and requests for a new investigation
+remain task intake. Dialogue turns preserve the task and spec_version, clear pending
+expert questions and stay outside subsequent TaskAgent history.
+
+The orchestrator receives the conversation, the latest saved consultation, up to
+three recent run summaries and safe historical failure metadata. Full run cursors,
+raw evidence, credentials and transport settings are not supplied. Failure metadata
+survives dismissal of the UI error notice; it does not establish that the same error
+is still active. Unknown failure causes must remain unknown. The router's context
+whitelist is unchanged; response data is supplied only to the response-generation path.
+
+In LLM mode, unavailable/not-found consultation responses are also explained by the
+orchestrator immediately, with the original response used as fallback if synthesis
+fails. Successful consultations retain their deterministic rendering. Explicit
+report editing produces a new chat response without changing the saved report,
+citations, measurements, validation status or run result. Original limitations and
+synthetic-data flags must remain visible. Missing details require clarification,
+not another invented investigation or diagnosis.
+
+Discussion and explanation share the 120-second intake deadline and model input
+budget. Older chat messages may be omitted to fit; response records are not silently
+truncated. Late generated replies are discarded and a host-owned timeout reply is
+saved under the job lease. Demo mode uses conservative routing phrases and a static
+fallback; free-form explanation and report rewriting require LLM mode.
 
 ## Assistant capabilities
 
