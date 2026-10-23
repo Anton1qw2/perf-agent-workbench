@@ -27,6 +27,7 @@ class Settings:
     git_repositories: dict[str, str] = field(default_factory=dict)
     docs_max_input_bytes: int = 2_000_000
     model_input_bytes: int = 120_000
+    knowledge_root: str = ""
     profiler_allowed_tools: list[str] = field(default_factory=list)
     # Optional legacy constraint; new integrations need no argument mapping.
     profiler_profile_arguments: dict[str, str] = field(default_factory=dict)
@@ -98,6 +99,7 @@ class Settings:
             git_repositories=json.loads(os.getenv("PERF_CHAT_GIT_REPOSITORIES", "{}")),
             docs_max_input_bytes=int(os.getenv("PERF_CHAT_DOCS_MAX_INPUT_BYTES", "2000000")),
             model_input_bytes=int(os.getenv("PERF_CHAT_MODEL_INPUT_BYTES", "120000")),
+            knowledge_root=os.getenv("PERF_CHAT_KNOWLEDGE_ROOT", "").strip(),
             profiler_allowed_tools=json.loads(os.getenv(
                 "PROFILER_MCP_ALLOWED_TOOLS", "[]",
             )),

@@ -74,7 +74,7 @@ def test_dynamic_catalog_and_arbitrary_tool_names_with_evidence():
     assert report.evidence[0].operation == "inspect_session"
     assert report.tool_catalog[0]["name"] == "inspect_session"
     assert report.observations[0].evidence_ids == ["e1"]
-    assert report.analyzer == "dynamic-mcp-v4"
+    assert report.analyzer == "dynamic-mcp-v5"
     assert model.plans[1]["evidence"][0]["response"] == {"cycles": 17, "unit": "cycles"}
 
 
@@ -266,7 +266,7 @@ def test_real_worker_uses_builtin_dynamic_analyzer_after_restart(tmp_path, monke
             break
     assert run["status"] == "succeeded"
     assert len(question_ids) == 1 and len(calls) == 1
-    assert run["cursor"]["analysis"]["analyzer"] == "dynamic-mcp-v4"
+    assert run["cursor"]["analysis"]["analyzer"] == "dynamic-mcp-v5"
     assert len(run["cursor"]["analysis"]["evidence"]) == 1
 
 
@@ -475,7 +475,8 @@ def test_call_budget_still_reports_accepted_evidence():
     model = Model()
     report = DynamicProfilerAnalyzer(gateway(calls), model, max_calls=1).analyze(request())
     assert report.status == "completed" and len(calls) == 1
-    assert len(model.plans) == 1
+    # One final planning decision can select hotspots without making another MCP call.
+    assert len(model.plans) == 2 and model.plans[-1]["remaining_calls"] == 0
     assert any("budget reached" in note for note in report.limitations)
 
 

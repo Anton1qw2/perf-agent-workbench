@@ -10,6 +10,7 @@ from ..integrations.profiler_mcp import DemoProfilerGateway, MCPProfilerGateway
 from ..llm import ChatModel
 from .contracts import AnalysisRequest, AnalysisServices
 from .factory import create_builtin_analyzer
+from .knowledge import DirectoryKnowledgeGateway
 
 
 def main():
@@ -54,6 +55,7 @@ def main():
                           token=settings.git_mcp_token, allowed_tools=settings.git_allowed_tools)
         if settings.git_mcp_url and not demo else None,
         demo=demo,
+        knowledge=DirectoryKnowledgeGateway(settings.knowledge_root),
     ))
     report = agent.analyze(
         AnalysisRequest(

@@ -57,6 +57,9 @@ class PromptContextBuilder:
                 self.token_counter is None or self.token_counter(body) <= self.max_tokens
             )
 
+        if not fits() and payload.get("knowledge"):
+            payload["knowledge"] = []
+            notes.append("Knowledge documents omitted from model context due to input budget.")
         if not fits() and not required and sources:
             payload["source_evidence"] = []
             notes.append("Optional source excerpts omitted from model context due to input budget.")

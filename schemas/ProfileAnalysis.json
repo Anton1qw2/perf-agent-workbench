@@ -254,6 +254,156 @@
       "title": "Evidence",
       "type": "object"
     },
+    "EvidenceSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "pointer": {
+          "default": "",
+          "maxLength": 2048,
+          "title": "Pointer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id"
+      ],
+      "title": "EvidenceSelection",
+      "type": "object"
+    },
+    "HotspotFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "hotspot": {
+          "$ref": "#/$defs/HotspotSpec"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "insufficient_data",
+            "budget_exhausted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "interpretation": {
+          "$ref": "#/$defs/Interpretation"
+        },
+        "delivered_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Delivered Evidence Ids",
+          "type": "array"
+        },
+        "knowledge_sources": {
+          "items": {
+            "$ref": "#/$defs/KnowledgeReference"
+          },
+          "title": "Knowledge Sources",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "hotspot",
+        "status"
+      ],
+      "title": "HotspotFinding",
+      "type": "object"
+    },
+    "HotspotSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "selections": {
+          "items": {
+            "$ref": "#/$defs/EvidenceSelection"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Selections",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "selections"
+      ],
+      "title": "HotspotSpec",
+      "type": "object"
+    },
+    "Interpretation": {
+      "additionalProperties": false,
+      "properties": {
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/Observation"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "hypotheses": {
+          "items": {
+            "$ref": "#/$defs/Observation"
+          },
+          "title": "Hypotheses",
+          "type": "array"
+        },
+        "recommendations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recommendations",
+          "type": "array"
+        }
+      },
+      "title": "Interpretation",
+      "type": "object"
+    },
+    "KnowledgeReference": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "title": "KnowledgeReference",
+      "type": "object"
+    },
     "Observation": {
       "additionalProperties": false,
       "properties": {
@@ -765,6 +915,22 @@
       },
       "maxItems": 8,
       "title": "Source History",
+      "type": "array"
+    },
+    "hotspot_findings": {
+      "items": {
+        "$ref": "#/$defs/HotspotFinding"
+      },
+      "maxItems": 8,
+      "title": "Hotspot Findings",
+      "type": "array"
+    },
+    "knowledge_sources": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeReference"
+      },
+      "maxItems": 128,
+      "title": "Knowledge Sources",
       "type": "array"
     }
   },

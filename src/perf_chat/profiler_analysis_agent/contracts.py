@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from ..contracts import StrictModel
 from .context_contracts import AnalysisContext, AnalysisContextUpdate, ContextUpdateProposal
+from .knowledge import KnowledgeGateway, KnowledgeReference
 from .source_contracts import SourceContext, SourceRequest
 
 
@@ -42,6 +43,28 @@ class Interpretation(StrictModel):
     recommendations: list[str] = Field(default_factory=list)
 
 
+class EvidenceSelection(StrictModel):
+    model_config = ConfigDict(str_strip_whitespace=False)
+
+    evidence_id: str = Field(min_length=1, max_length=128)
+    pointer: str = Field(default="", max_length=2048)
+
+
+class HotspotSpec(StrictModel):
+    label: str = Field(min_length=1, max_length=256)
+    selections: list[EvidenceSelection] = Field(min_length=1, max_length=8)
+
+
+class HotspotFinding(StrictModel):
+    id: str
+    hotspot: HotspotSpec
+    status: Literal["completed", "insufficient_data", "budget_exhausted"]
+    interpretation: Interpretation = Field(default_factory=Interpretation)
+    delivered_evidence_ids: list[str] = Field(default_factory=list)
+    knowledge_sources: list[KnowledgeReference] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+
+
 class ChatReport(StrictModel):
     format: Literal["markdown"] = "markdown"
     content: str = Field(min_length=1, max_length=16000)
@@ -68,6 +91,8 @@ class ProfileAnalysis(StrictModel):
     chat_report: ChatReport | None = None
     context_updates: list[AnalysisContextUpdate] = Field(default_factory=list, max_length=8)
     source_history: list[SourceContext] = Field(default_factory=list, max_length=8)
+    hotspot_findings: list[HotspotFinding] = Field(default_factory=list, max_length=8)
+    knowledge_sources: list[KnowledgeReference] = Field(default_factory=list, max_length=128)
 
 
 
@@ -118,3 +143,4 @@ class AnalysisServices:
     max_input_bytes: int = 120_000
     git: MCPToolGateway | None = None
     demo: bool = False  # Host configuration, never inferred from MCP data or gateways.
+    knowledge: KnowledgeGateway | None = None

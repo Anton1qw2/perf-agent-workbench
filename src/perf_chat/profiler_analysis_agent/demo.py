@@ -5,6 +5,14 @@ import json
 
 class DemoAnalysisModel:
     def complete(self, system, payload, **kwargs):
+        if payload["schema"]["title"] == "KnowledgeSelection":
+            return json.dumps({"paths": []})
+        if "hotspot_findings" in payload:
+            return json.dumps({
+                "observations": [observation for finding in payload["hotspot_findings"]
+                                 for observation in finding["interpretation"]["observations"]],
+                "recommendations": ["Demo only; validate real profiler and model deployments separately."],
+            })
         if payload["schema"]["title"] == "ToolDecision":
             if not payload["evidence"]:
                 return json.dumps({"action": "call", "reason": "Read synthetic fixture",

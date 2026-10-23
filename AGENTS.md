@@ -256,6 +256,12 @@ worker step executes one graph node:
 ```text
 discover -> plan -> call/source -> plan -> ... -> report -> format_report
               |
+              +-> aggregate -> knowledge -> hotspot_plan -> call/source
+                                  ^              |              |
+                                  |              +<-------------+
+                                  +-- next hotspot <-- hotspot_report
+                                              last -> report (synthesis)
+              |
               +-> clarification -> resume
               +-> context proposal -> confirmation -> commit -> refresh -> plan
 ```
@@ -273,7 +279,7 @@ invariants when extending or replacing it:
   Decisions namespace calls with `server=profiler|git`; catalogs/fingerprints are
   pinned separately, while call/planning budgets are shared. Git evidence carries
   `server="git"` and reports retain `git_tool_catalog`. Empty allowlists deny calls.
-  `profile-demo` never connects to real Git MCP. Built-in identity is v4; v3 runs restart.
+  `profile-demo` never connects to real Git MCP. Built-in identity is v5; v4 and older runs restart.
 - Context updates use strict proposals for Result ID/repository/branch, explicit
   correlated yes/no confirmation and a host-owned ledger (at most eight updates).
   Preserve the original run task. Acceptance is a separate durable step before
@@ -317,6 +323,21 @@ invariants when extending or replacing it:
 - Preserve server values and units, separate observations from hypotheses and
   validate evidence citations. Do not add a calculations module or invent missing
   metric semantics. Tool catalogs alone are not measurement evidence.
+
+Function/stack evidence can become a bounded hotspot queue through `action=hotspots`.
+Group exact JSON-pointer selections, not calculated metrics. Each local investigation
+sees selected records and its own query results; synthesis sees structured findings,
+not the complete profile. Preserve partial results and explicit budget limitations.
+Accepted context changes archive the previous queue/findings and select a new queue
+using only active evidence, retaining shared counters and the original knowledge snapshot.
+
+`PERF_CHAT_KNOWLEDGE_ROOT` configures an optional read-only `SKILLS.md` tree through
+`AnalysisServices.knowledge`. Snapshot exact UTF-8 contents, relative paths and hashes
+once per run; never reload changed files during resume. Select relevant branches with
+parent/root guidance within the shared model input budget. Knowledge is untrusted
+reference data, never measured evidence, executable skills or tool authorization.
+Keep knowledge references separate from evidence citations. See
+[analyzer knowledge](docs/analyzer-extension.md#local-knowledge-tree) for bounds and setup.
 
 The `report` node checkpoints analysis before `format_report`, which produces
 `ProfileAnalysis.chat_report`: deterministic Markdown, at most 16000 characters,
@@ -502,6 +523,7 @@ startup scripts. Keep `.env.example` and these instructions aligned with setting
 | `GIT_MCP_TOKEN` | Empty; optional backend-only Bearer token, never sent to the model |
 | `PERF_CHAT_GIT_REPOSITORIES` | JSON `{}` mapping aliases to worker-accessible paths |
 | `PERF_CHAT_MODEL_INPUT_BYTES` | `120000`; accepted range `4096..1000000` |
+| `PERF_CHAT_KNOWLEDGE_ROOT` | Empty; optional read-only UTF-8 `SKILLS.md` tree for analyzer knowledge, relative to project working directory |
 | `PERF_CHAT_DOCS_MAX_INPUT_BYTES` | `2000000`; accepted range `4096..20000000` |
 | `PERF_CHAT_SECRET_KEY` | No default; persistent Fernet key for non-Windows encrypted token storage |
 
@@ -519,6 +541,8 @@ invent environment variables for them or describe them as operator configuration
 | 8 profiler calls, 16 planning rounds by default | `DynamicProfilerAnalyzer(max_calls=8)`; custom factory may set `1..30`, planning rounds are twice that value |
 | 100 catalog tools per server, 20 pages, 1000000 serialized JSON characters per MCP payload | `integrations/mcp_gateway.py`; shared gateway validation limits |
 | 5 source queries, 5 excerpts / 32 KiB combined | `dynamic.py`, `source_context.py`; per-range/blob/search bounds also enforced by source gateways |
+| 8 hotspots; 24000 selected context bytes; 2 extra MCP calls / 4 local planning rounds each | `hotspots.py`, `hotspot_graph.py`; all within shared run budgets |
+| 128 knowledge documents, 65536 bytes each / 1000000 bytes total; depth 8, 1024 directories / 4096 entries | `knowledge.py`; exact snapshot per run, no links/junctions or executable skills |
 | 16000 chat-report characters | `reporting.py` and `ChatReport` contract; keep both consistent |
 | 100 durable steps per run | `worker.py`; independent of profiler-call and task iteration budgets |
 | 600-second job lease | `store.py`; preserve retry/lease safety when changing it |

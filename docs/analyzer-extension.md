@@ -24,6 +24,12 @@ The built-in LangGraph executes one node per durable worker step:
 ```text
 discover -> plan -> call/source -> plan -> ... -> report -> format_report
               |
+              +-> aggregate -> knowledge -> hotspot_plan -> call/source
+                                  ^              |              |
+                                  |              +<-------------+
+                                  +-- next hotspot <-- hotspot_report
+                                              last -> report (synthesis)
+              |
               +-> clarification -> resume
               +-> context proposal -> confirmation -> commit -> refresh -> plan
 ```
@@ -36,6 +42,30 @@ A second optional [Git MCP gateway](git-mcp.md) supplies provider-neutral reposi
 tools. Decisions include `server=profiler|git`; the eight-call budget is shared.
 The current profile reference remains an opaque `result_id` in the application contract,
 with an empty default for Git-only analysis.
+
+When overview evidence identifies functions or stacks, the planner selects `action=hotspots`
+with up to eight `HotspotSpec` entries. Each selects existing evidence IDs and exact RFC 6901
+JSON pointers into their responses. The `aggregate` node groups those records without
+calculating metrics. Each hotspot's selected records plus local responses are limited to 24000 serialized UTF-8
+bytes; invalid or oversized selections return bounded feedback before investigation.
+The complete original responses remain in evidence; projections preserve their pointers
+and original evidence IDs/hashes rather than pretending to be new measurements.
+
+The sequential queue checkpoints knowledge selection, planning, MCP/source calls and
+interpretation separately. Each hotspot has at most two additional MCP calls and four
+planning rounds, within the shared run limits. The planner may make a final non-calling
+decision after the MCP budget is exhausted to select hotspots or finish. Local queries
+must use scoped identifiers when supported by the discovered schema; arbitrary response
+schemas cannot establish that a server honored scope. There is no concurrent mutation of
+the run cursor. A hotspot receives its exact selected records and local responses, not
+the complete overview or another hotspot's details. Required user source ranges remain
+mandatory for interpretation. Structured findings and delivered evidence IDs are saved
+under `hotspot_findings`; invalid local output remains in the queue for audit and produces
+no accepted findings. Synthesis receives these results rather than full profiler payloads.
+Partial/budget-exhausted investigations remain explicit limitations. Tasks without
+identifiable function/stack evidence may produce an explicitly limited overview report.
+Oversized essential evidence is rejected, not silently truncated; prefer server-side
+filtering or pagination where the discovered tools support it.
 The request also carries optional `repository` and `branch` fields. The worker passes
 user-selected repository metadata even when source access is unavailable. Explicit local
 Git paths are scoped to the run without clone/fetch; symbolic aliases require backend
@@ -68,6 +98,45 @@ Changes to an analyzer's identity, endpoint, allowlist, profile-argument mapping
 selected tool definition fail closed and require a new run. Do not resume an existing
 analysis against a different profiler server even if it exposes identical schemas. The analyzer factory may be recreated on each step and must not rely on
 in-memory graph state surviving. Catalog metadata is not a source of measurements.
+
+## Local knowledge tree
+
+Set the backend environment variable for both API and worker, then restart them:
+
+```dotenv
+PERF_CHAT_KNOWLEDGE_ROOT=./knowledge
+```
+
+An empty value disables knowledge. Relative paths use the project working directory;
+services should use an explicit working directory or an absolute deployment path.
+The repository includes a small starter tree in `knowledge/`. Only files named exactly
+`SKILLS.md` are read, as regular UTF-8 text. Headings and optional front matter are
+reference text, not parsed executable skill configuration. No code, imports, commands
+or links in these documents are executed or fetched.
+
+`DirectoryKnowledgeGateway` creates a complete snapshot at initial discovery. It bounds
+the tree to 128 documents, 65536 bytes per document, 1000000 raw document bytes,
+1024 directories, 4096 entries and eight nested directory levels. Symlinks, junctions,
+unreadable/invalid documents and limit violations make the whole snapshot unavailable,
+with a limitation; no partial snapshot is accepted. Empty trees are reported explicitly.
+Deadline failures remain failures. Absolute filesystem paths are not sent to the model.
+
+The checkpoint retains relative paths, exact contents and SHA-256 hashes. Reconstructed
+analyzers use that snapshot even if files or the ENV path change during a run; a new run
+loads the new tree. Selective model retrieval uses bounded descriptions to choose at
+most four paths, then includes available parent `SKILLS.md` files and root guidance.
+Invalid branch selection falls back to root guidance with an explicit limitation.
+Selected documents share the existing `PERF_CHAT_MODEL_INPUT_BYTES` budget and may be
+omitted explicitly before essential evidence is removed. Documents are never silently
+truncated for interpretation. Knowledge paths are not valid measurement evidence IDs.
+Reports retain references to delivered guidance separately from measured/source evidence.
+
+Custom factories receive `AnalysisServices.knowledge`; pass it as `knowledge_gateway`
+when constructing `DynamicProfilerAnalyzer`. A future Confluence adapter can implement
+the same snapshot interface without changing the hotspot graph. Knowledge is untrusted
+reference data and cannot override execution policies, authorize tools or prove runtime
+cost, causality or successful optimization. Existing documentation-expert APIs remain
+compatible.
 
 ## Configure a profiler
 
@@ -166,6 +235,7 @@ The factory is trusted backend code and receives services for the immutable run:
 - `git`: optional provider-neutral Git MCP gateway using backend ENV authentication.
 - `max_input_bytes`: model request budget.
 - `demo`: host-configured execution classification, True only for `profile-demo`.
+- `knowledge`: optional read-only `KnowledgeGateway`, explicitly supplied by the host.
 
 The synthetic demo gateway implements the same discovery/call protocol with a fixed
 fixture catalog and synthetic responses; it has no legacy named profiler methods.
@@ -175,7 +245,7 @@ the default is False. The gateway protocol does not require a demo attribute.
 A replacement MCP gateway used by the built-in analyzer must implement `MCPToolGateway`,
 including a stable `configuration_fingerprint` for its endpoint and execution policy.
 Git and profiler fingerprints/catalogs are checkpointed separately. The current built-in
-identity is `builtin-dynamic-mcp-v4`; v3 active runs require restart. Git evidence carries
+identity is `builtin-dynamic-mcp-v5`; v4 and older active runs require restart. Git evidence carries
 `server="git"`, and the report retains `git_tool_catalog` separately.
 Use the MCP gateway's `call_tool` method for schema/policy enforcement and
 `PromptContextBuilder` for the common model input/citation budget. Custom graphs

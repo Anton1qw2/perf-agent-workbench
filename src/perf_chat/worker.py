@@ -15,6 +15,7 @@ from .profiler_analysis_agent.context_updates import effective_context
 from .profiler_analysis_agent.contracts import AnalysisServices
 from .profiler_analysis_agent.executor import ProfileAnalysisExecutor
 from .profiler_analysis_agent.factory import create_builtin_analyzer
+from .profiler_analysis_agent.knowledge import DirectoryKnowledgeGateway
 from .runtime import check_deadline, execution_deadline
 from .store import Store
 from .task_agent.agent import TaskAgent
@@ -79,6 +80,7 @@ class Worker:
                 profiler=gateway, model=self.model, source=source,
                 analysis_id=run["id"], max_input_bytes=settings.model_input_bytes,
                 git=git, demo=demo,
+                knowledge=DirectoryKnowledgeGateway(settings.knowledge_root),
             )), source_gateway=source, git_gateway=git,
         )
 

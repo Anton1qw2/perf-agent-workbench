@@ -143,6 +143,14 @@ def format_chat_report(report, *, unvalidated_output=None):
     if not report.observations:
         add("No validated observations were produced.")
     section("Recommended checks", [_escape(text) for text in report.recommendations])
+    section("Hotspot investigations", [
+        f"{_escape(item.id, 100)} — {_escape(item.hotspot.label, 256)}; {_escape(item.status, 100)}"
+        for item in report.hotspot_findings
+    ])
+    section("Knowledge references", [
+        f"{_escape(item.path, 1024)}; SHA-256 {_escape(item.sha256, 64)} (reference guidance)"
+        for item in report.knowledge_sources
+    ])
     section("Limitations", [_escape(text) for text in dict.fromkeys(report.limitations)])
     if unvalidated_output:
         raw = str(unvalidated_output)

@@ -14,6 +14,11 @@ source context. The default executor is a **demo**; it performs no real optimiza
 The built-in analyzer's demo flag comes from `PERF_CHAT_EXECUTOR` configuration,
 never MCP metadata or response fields. See [analyzer configuration](docs/analyzer-extension.md).
 
+Function-level investigations use a durable hotspot queue and combine their validated
+results into one report. Optional local knowledge is connected through
+`PERF_CHAT_KNOWLEDGE_ROOT=./knowledge` in `.env`; see the starter
+[SKILLS.md](knowledge/SKILLS.md) and [knowledge setup](docs/analyzer-extension.md#local-knowledge-tree).
+
 ## Quick start
 
 Requires Python 3.11+ and Git. Clone this repository and run from its root

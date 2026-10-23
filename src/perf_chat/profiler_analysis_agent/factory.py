@@ -16,4 +16,5 @@ def create_builtin_analyzer(services: AnalysisServices) -> ProfileAnalyzer:
         services.profiler, model, docs_agent=docs_agent, source_gateway=services.source,
         max_input_bytes=services.max_input_bytes,
         git_gateway=services.git, demo=services.demo,
+        knowledge_gateway=services.knowledge,
     )

@@ -14,16 +14,19 @@ from ..integrations.mcp_schema import validate_schema
 from ..runtime import check_deadline, execution_deadline
 from .context_builder import ContextBudgetExceeded, RequiredSourceOmitted
 from .context_contracts import AnalysisContext, AnalysisContextUpdate, ContextUpdateProposal
-from .contracts import AnalysisStep, Evidence, MCPTool, ProfileAnalysis
+from .contracts import AnalysisStep, Evidence, HotspotSpec, MCPTool, ProfileAnalysis
 from .evidence import evidence
+from .hotspot_graph import HotspotGraph
+from .hotspots import MAX_HOTSPOT_CALLS, MAX_HOTSPOTS, usable
 from .interpretation import EvidenceInterpreter
-from .reporting import format_chat_report
+from .knowledge import KnowledgeSnapshot
+from .reporting import format_chat_report, parse_analysis_json
 from .source_context import collect_source, prepare_source
 from .source_contracts import SourceContext, SourceLocation, SourceRequest
 
 
 class ToolDecision(StrictModel):
-    action: Literal["call", "source", "finish", "ask", "update_context"]
+    action: Literal["call", "source", "finish", "ask", "update_context", "hotspots"]
     server: Literal["profiler", "git"] = "profiler"
     reason: str = Field(min_length=1, max_length=2000)
     tool: str | None = None
@@ -32,6 +35,7 @@ class ToolDecision(StrictModel):
     locations: list[SourceLocation] = Field(default_factory=list, max_length=5)
     symbols: list[str] = Field(default_factory=list, max_length=3)
     context_update: ContextUpdateProposal | None = None
+    hotspots: list[HotspotSpec] = Field(default_factory=list, max_length=MAX_HOTSPOTS)
 
 
 class StepState(TypedDict):
@@ -41,10 +45,10 @@ class StepState(TypedDict):
     step: dict
 
 
-class DynamicProfilerAnalyzer(EvidenceInterpreter):
+class DynamicProfilerAnalyzer(HotspotGraph, EvidenceInterpreter):
     """Replace with any ProfileAnalyzer through Worker(analyzer_factory=...)."""
 
-    analyzer_id = "builtin-dynamic-mcp-v4"
+    analyzer_id = "builtin-dynamic-mcp-v5"
     supports_context_updates = True
 
     def __init__(self, *args, max_calls=8, **kwargs):
@@ -56,7 +60,9 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             "instructions/dynamic_analysis.md",
         ).read_text(encoding="utf-8")
         graph = StateGraph(StepState)
-        for phase in ("discover", "refresh", "plan", "call", "source", "report", "format_report"):
+        phases = ("discover", "refresh", "plan", "call", "source", "aggregate", "knowledge",
+                  "hotspot_plan", "hotspot_report", "report", "format_report")
+        for phase in phases:
             def node(state, method=getattr(self, "_" + phase)):
                 return {"step": method(
                     state["request"], state["checkpoint"], state["source_snapshot"],
@@ -64,7 +70,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             graph.add_node(phase, node)
             graph.add_edge(phase, END)
         graph.add_conditional_edges(START, lambda state: state["checkpoint"].get("phase", "discover"),
-                                    {name: name for name in ("discover", "refresh", "plan", "call", "source", "report", "format_report")})
+                                    {name: name for name in phases})
         self.workflow = graph.compile()
 
     def _output(self, request, state, *, error=None, question=None, field="analysis_input",
@@ -90,13 +96,19 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
             notes.append(error)
         report = ProfileAnalysis(
             status="needs_input" if question else "insufficient_data" if error else "completed",
-            request=request, demo=self.demo, analyzer="dynamic-mcp-v4",
+            request=request, demo=self.demo, analyzer="dynamic-mcp-v5",
             evidence=state.get("evidence", []), tool_catalog=state.get("catalog", []),
             git_tool_catalog=state.get("git_catalog", []),
             limitations=notes, open_questions=[question] if question else [],
             clarification_field=field, documentation=documentation, source_context=source_context,
             delivered_evidence_ids=sorted(delivered or []),
             context_updates=state.get("context_updates", []), source_history=state.get("source_history", []),
+            hotspot_findings=state.get("hotspot_findings", []),
+            knowledge_sources=list({item["path"]: item for item in [
+                *state.get("knowledge_sources", []),
+                *(ref for finding in state.get("hotspot_findings", [])
+                  for ref in finding.get("knowledge_sources", [])),
+            ]}.values()),
             **(interpretation.model_dump() if interpretation else {}),
         )
         if error:
@@ -107,6 +119,10 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         state.update(evidence=[], calls=0, rounds=0, answers=[], decisions=[], limitations=[],
                      analysis_questions=[], context_updates=[], discovered_servers=[],
                      active_profile_ids=[request.result_id] if request.result_id else [])
+        knowledge = self.knowledge_gateway.snapshot() if self.knowledge_gateway else KnowledgeSnapshot()
+        knowledge = KnowledgeSnapshot.model_validate(knowledge)
+        state["knowledge_snapshot"] = knowledge.model_dump()
+        state["limitations"].extend(knowledge.limitations)
         return self._refresh(request, state, snapshot)
 
     def _refresh(self, request, state, snapshot):
@@ -161,16 +177,12 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         return active
 
     def _has_usable_evidence(self, request, state):
-        for item in self._active_evidence(request, state):
-            value = item["response"]
-            if value is None:
-                continue
-            if isinstance(value, str) and not value.strip():
-                continue
-            if isinstance(value, (dict, list)) and not value:
-                continue
-            return True
-        return False
+        return any(usable(item["response"]) for item in self._active_evidence(request, state))
+
+    def _interpretation_phase(self, state):
+        if self._current_hotspot(state) is not None:
+            return "hotspot_report"
+        return "knowledge" if state.get("knowledge_snapshot", {}).get("documents") else "report"
 
     @staticmethod
     def _clarification_context(state):
@@ -196,34 +208,52 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
                 "No discovered tools are allowed for the supplied inputs. Configure "
                 "PROFILER_MCP_ALLOWED_TOOLS or GIT_MCP_ALLOWED_TOOLS."
             ))
-        if state["calls"] >= self.max_calls or state["rounds"] >= self.max_calls * 2:
+        if state["calls"] >= self.max_calls:
+            note = "MCP call budget reached; only collected evidence may be used."
+            if note not in state["limitations"]:
+                state["limitations"].append(note)
+        if state["rounds"] >= self.max_calls * 2:
             if not self._has_usable_evidence(request, state):
                 return self._output(request, state, error="Dynamic investigation budget exhausted.")
             state["limitations"].append("Investigation budget reached; report uses collected evidence only.")
-            state["phase"] = "report"
+            state["phase"] = self._interpretation_phase(state)
             return AnalysisStep(checkpoint=state, message="Investigation budget reached; preparing report.")
-        source_context = self._saved_source_context(request, state) or SourceContext(snapshot=snapshot)
+        source_context = self._model_source(request, state, snapshot)
+        current = self._current_hotspot(state)
         payload = {
             "source_snapshot": snapshot.model_dump() if snapshot else None,
             "remaining_source_calls": 5 - state.get("source_calls", 0),
             "schema": ToolDecision.model_json_schema(), "request": request.model_dump(),
-            "tools": tools, "evidence": self._active_evidence(request, state),
+            "tools": tools, "evidence": self._model_evidence(request, state),
             "context_updates": state.get("context_updates", []),
             "active_profile_ids": state.get("active_profile_ids", []),
             "clarifications": self._clarification_context(state),
             "remaining_calls": self.max_calls - state["calls"],
             "argument_feedback": state.get("argument_feedback"),
             "limitations": state["limitations"],
+            "hotspot": current["hotspot"] if current else None,
+            "remaining_hotspot_calls": MAX_HOTSPOT_CALLS - current["calls"] if current else None,
+            "knowledge": self._selected_knowledge(state) if current else [],
         }
         context = self.context_builder.build(self.model, self.planner_system, payload, source_context)
+        if current:
+            self._remember_knowledge(current, context.payload.get("knowledge", []))
         check_deadline()
-        decision = ToolDecision.model_validate_json(
+        decision = ToolDecision.model_validate(parse_analysis_json(
             self.model.complete(self.planner_system, context.payload, json_output=True),
-        )
+        ))
         check_deadline()
         state.pop("argument_feedback", None)
         state["rounds"] += 1
+        if current:
+            current["rounds"] += 1
+        state["limitations"].extend(context.limitations)
         state.setdefault("decisions", []).append(decision.model_dump())
+        if decision.action == "hotspots":
+            if current or not decision.hotspots or state.get("hotspot_queue"):
+                raise ValueError("Select a nonempty hotspot queue only during overview collection")
+            state.update(phase="aggregate", hotspot_selection=[item.model_dump() for item in decision.hotspots])
+            return AnalysisStep(checkpoint=state, message="Hotspot candidates selected from collected evidence.")
         if decision.action == "update_context":
             if decision.context_update is None:
                 raise ValueError("A typed context update proposal is required")
@@ -251,14 +281,20 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         if decision.action == "finish":
             if not self._has_usable_evidence(request, state):
                 return self._output(request, state, error="No usable MCP evidence was collected.")
-            state["phase"] = "report"
+            if not current and not state.get("hotspot_queue"):
+                state["limitations"].append(
+                    "No function-level hotspot queue was selected; this report is an overview only."
+                )
+            state["phase"] = self._interpretation_phase(state)
             return AnalysisStep(checkpoint=state, message="Profiler evidence ready for interpretation.")
-        if not decision.tool or (decision.server, decision.tool) not in {
-            (tool["server"], tool["name"]) for tool in tools
-        }:
+        if state["calls"] >= self.max_calls:
+            state["limitations"].append("MCP call budget exhausted; no additional query was executed.")
+            state["phase"] = self._interpretation_phase(state)
+            return AnalysisStep(checkpoint=state, message="MCP call budget reached; preparing interpretation.")
+        selected_tool = next((tool for tool in tools
+                              if (tool["server"], tool["name"]) == (decision.server, decision.tool)), None)
+        if selected_tool is None:
             raise ValueError("The planner selected an unavailable or disallowed tool")
-        selected_tool = next(tool for tool in tools if tool["name"] == decision.tool
-                             and tool["server"] == decision.server)
         try:
             validate_schema(decision.arguments, selected_tool["input_schema"])
         except SchemaValidationError as error:
@@ -295,7 +331,11 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         item["context"] = self._context(request).model_dump()
         state["evidence"].append(item)
         state["calls"] += 1
-        state["phase"] = "plan"
+        current = self._current_hotspot(state)
+        if current:
+            current["calls"] += 1
+            current["local_evidence_ids"].append(item["id"])
+        state["phase"] = "hotspot_plan" if current else "plan"
         return AnalysisStep(checkpoint=state, message="MCP response saved as evidence.")
 
     @staticmethod
@@ -313,6 +353,11 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         })
         context = collect_source(self.source_gateway, selected_request, snapshot,
                                  model_enabled=self.model is not None)
+        current = self._current_hotspot(state)
+        if current:
+            current["source_ids"] = list(dict.fromkeys([
+                *current["source_ids"], *(item.id for item in context.evidence),
+            ]))
         for item in context.evidence:
             item.origin = "model_selection"
             if item.resolution == "provided_location":
@@ -335,10 +380,10 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         state["source_request"] = request.source.model_dump()
         state["source_calls"] = state.get("source_calls", 0) + 1
         state.setdefault("source_queries", []).append(selection)
-        state["phase"] = "plan"
+        state["phase"] = "hotspot_plan" if current else "plan"
         return AnalysisStep(checkpoint=state, message="Repository source query completed.")
 
-    def _report(self, request, state, snapshot):
+    def _prepare_report_source(self, request, state, snapshot):
         saved = self._saved_source_context(request, state)
         required = bool(request.source and request.source.policy == "required")
         context = (collect_source(self.source_gateway, request.source, snapshot,
@@ -367,6 +412,10 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
                 total += size
             context.evidence = list(merged.values())
             context.limitations = list(dict.fromkeys(context.limitations + saved.limitations))
+        return context
+
+    def _report(self, request, state, snapshot):
+        context = self._prepare_report_source(request, state, snapshot)
         if context.needs_selection:
             return self._output(request, state, question="Select an explicit source path and line range.",
                                 field="source", source_context=context)
@@ -377,13 +426,18 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         state.pop("raw_interpretation", None)
         state.pop("unvalidated_interpretation", None)
         try:
-            interpretation, delivered, notes = self.interpret(
-                request, [Evidence.model_validate(item) for item in self._active_evidence(request, state)], docs, context,
-                analysis_context={"clarifications": self._clarification_context(state),
-                                  "context_updates": state.get("context_updates", []),
-                                  "active_profile_ids": state.get("active_profile_ids", [])},
-                raw_output_sink=lambda text: state.update(raw_interpretation=text),
-            )
+            if state.get("hotspot_findings"):
+                interpretation, delivered, notes = self._synthesize(request, state, docs, context)
+            else:
+                interpretation, delivered, notes = self.interpret(
+                    request, [Evidence.model_validate(item) for item in self._active_evidence(request, state)], docs, context,
+                    analysis_context={"clarifications": self._clarification_context(state),
+                                      "context_updates": state.get("context_updates", []),
+                                      "active_profile_ids": state.get("active_profile_ids", [])},
+                    raw_output_sink=lambda text: state.update(raw_interpretation=text),
+                    knowledge=self._selected_knowledge(state),
+                    knowledge_sink=lambda items: self._remember_knowledge(state, items),
+                )
         except (ContextBudgetExceeded, RequiredSourceOmitted):
             raise
         except ValueError:
@@ -425,6 +479,9 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         ):
             raise ValueError("Source snapshot does not match the analysis request")
         state = json.loads(json.dumps(checkpoint, allow_nan=False))
+        if state.get("workflow_version", 5) != 5 or (state.get("phase") and "workflow_version" not in state):
+            return self._output(request, state, error="Analyzer graph changed; start a new run.")
+        state["workflow_version"] = 5
         saved_demo = state.get("demo_mode", state.get("pending_report", {}).get("demo", self.demo))
         if saved_demo != self.demo:
             return self._output(request, state, error="Analysis execution mode changed; start a new run.")
@@ -463,6 +520,14 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
                 *state.get("active_profile_ids", []), update.current.result_id,
             ])) if update.mode == "compare" else ([update.current.result_id] if update.current.result_id else []))
             for key in ("pending_report", "raw_interpretation", "unvalidated_interpretation", "decision", "source_selection"):
+                state.pop(key, None)
+            if state.get("hotspot_queue"):
+                state.setdefault("hotspot_history", []).append({
+                    "context": previous.model_dump(), "queue": state["hotspot_queue"],
+                    "findings": state.get("hotspot_findings", []),
+                })
+            for key in ("hotspot_queue", "hotspot_index", "hotspot_findings", "hotspot_selection",
+                        "knowledge_paths", "knowledge_sources"):
                 state.pop(key, None)
             state.update(phase="refresh", identity=None)
             previous = update.current
@@ -510,7 +575,7 @@ class DynamicProfilerAnalyzer(EvidenceInterpreter):
         with execution_deadline(deadline):
             snapshot = source_snapshot or prepare_source(self.source_gateway, request.source)
             checkpoint = {}
-            for _ in range(self.max_calls * 4 + 20):
+            for _ in range(100):
                 step = self.step_analysis(request, checkpoint=checkpoint, deadline=deadline,
                                           source_snapshot=snapshot)
                 if step.report is not None:
